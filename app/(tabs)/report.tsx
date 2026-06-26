@@ -3,10 +3,10 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
-import * as Location from "expo-location";
-import { useCallback, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -19,8 +19,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapView, { Marker } from "react-native-maps";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LatLng = {
   latitude: number;
@@ -104,9 +104,19 @@ export default function ReportScreen() {
 
   const incidentTypes = [
     { id: "fire", label: t("type.fire"), icon: "flame", color: "#f0543c" },
-    { id: "medical", label: t("type.medical"), icon: "bandage", color: "#8f44fd" },
+    {
+      id: "medical",
+      label: t("type.medical"),
+      icon: "bandage",
+      color: "#8f44fd",
+    },
     { id: "crime", label: t("type.crime"), icon: "shield", color: "#e77a3e" },
-    { id: "accident", label: t("type.accident"), icon: "car-sport", color: "#2d98da" },
+    {
+      id: "accident",
+      label: t("type.accident"),
+      icon: "car-sport",
+      color: "#2d98da",
+    },
     { id: "flood", label: t("type.flood"), icon: "drop", color: "#3a86ff" },
   ];
   const [selectedType, setSelectedType] = useState(incidentTypes[0].id);
@@ -166,7 +176,9 @@ export default function ReportScreen() {
         location: locationCoords,
         submittedAt: new Date().toISOString(),
         status: STATUS_PENDING,
-        icon: incidentTypes.find((t) => t.id === selectedType)?.icon ?? "exclamationmark.triangle",
+        icon:
+          incidentTypes.find((t) => t.id === selectedType)?.icon ??
+          "exclamationmark.triangle",
       };
       // Simulated send; replace with API call later
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -182,8 +194,14 @@ export default function ReportScreen() {
       // maintain local history index (most recent first, max 20)
       try {
         const rawIndex = await AsyncStorage.getItem(INCIDENT_INDEX_KEY);
-        const parsed: { id: string; title: string; category: string; updatedAt: string; icon?: string; status?: string }[] =
-          rawIndex ? JSON.parse(rawIndex) : [];
+        const parsed: {
+          id: string;
+          title: string;
+          category: string;
+          updatedAt: string;
+          icon?: string;
+          status?: string;
+        }[] = rawIndex ? JSON.parse(rawIndex) : [];
         const filtered = parsed.filter((item) => item.id !== payload.id);
         const next = [
           { ...chatParams, updatedAt: payload.submittedAt },
@@ -195,7 +213,7 @@ export default function ReportScreen() {
       }
       await AsyncStorage.setItem(
         "last-incident-chat",
-        JSON.stringify(chatParams)
+        JSON.stringify(chatParams),
       );
       setLastIncidentChat(chatParams);
       router.push({
@@ -248,6 +266,7 @@ export default function ReportScreen() {
       <ScrollView
         contentContainerStyle={[
           styles.scroll,
+          { paddingTop: insets.top + 20 },
           // Ensure the last fields aren't hidden behind the floating submit CTA
           // and the bottom tab bar.
           { paddingBottom: tabBarHeight + 56 + 6 },
@@ -277,11 +296,23 @@ export default function ReportScreen() {
             {t("report.subtitle")}
           </ThemedText>
           <Pressable
-            style={[styles.historyButton, { borderColor, backgroundColor: isDarkMode ? "#102026" : "#ffffff" }]}
+            style={[
+              styles.historyButton,
+              {
+                borderColor,
+                backgroundColor: isDarkMode ? "#102026" : "#ffffff",
+              },
+            ]}
             onPress={() => router.push("/report-history" as never)}
           >
-            <IconSymbol name="clock.arrow.circlepath" size={16} color={TealColors.primary} />
-            <Text style={[styles.historyButtonText, { color: TealColors.primary }]}>
+            <IconSymbol
+              name="clock.arrow.circlepath"
+              size={16}
+              color={TealColors.primary}
+            />
+            <Text
+              style={[styles.historyButtonText, { color: TealColors.primary }]}
+            >
               {t("report.historyButton")}
             </Text>
           </Pressable>
@@ -309,7 +340,9 @@ export default function ReportScreen() {
             { backgroundColor: cardBackground, borderColor },
           ]}
         >
-          <ThemedText style={styles.sectionTitle}>{t("report.incidentType")}</ThemedText>
+          <ThemedText style={styles.sectionTitle}>
+            {t("report.incidentType")}
+          </ThemedText>
           <Pressable
             style={[
               styles.typeSelect,
@@ -338,7 +371,9 @@ export default function ReportScreen() {
                   color={selectedTypeMeta.color}
                 />
               </View>
-              <ThemedText style={[styles.typeSelectLabel, { color: textColor }]}>
+              <ThemedText
+                style={[styles.typeSelectLabel, { color: textColor }]}
+              >
                 {selectedTypeMeta.label}
               </ThemedText>
             </View>
@@ -348,7 +383,9 @@ export default function ReportScreen() {
               color={isDarkMode ? "#cbd5e1" : "#475569"}
             />
           </Pressable>
-          <Text style={styles.helperText}>{t("report.typeHelp", "Tap to change the incident type.")}</Text>
+          <Text style={styles.helperText}>
+            {t("report.typeHelp", "Tap to change the incident type.")}
+          </Text>
         </View>
 
         <Modal
@@ -380,7 +417,9 @@ export default function ReportScreen() {
                       styles.modalItem,
                       {
                         borderColor: active ? type.color : borderColor,
-                        backgroundColor: active ? `${type.color}18` : "transparent",
+                        backgroundColor: active
+                          ? `${type.color}18`
+                          : "transparent",
                       },
                     ]}
                     onPress={() => {
@@ -395,14 +434,24 @@ export default function ReportScreen() {
                           { backgroundColor: `${type.color}22` },
                         ]}
                       >
-                        <IconSymbol name={type.icon} size={18} color={type.color} />
+                        <IconSymbol
+                          name={type.icon}
+                          size={18}
+                          color={type.color}
+                        />
                       </View>
-                      <ThemedText style={[styles.modalItemLabel, { color: textColor }]}>
+                      <ThemedText
+                        style={[styles.modalItemLabel, { color: textColor }]}
+                      >
                         {type.label}
                       </ThemedText>
                     </View>
                     {active ? (
-                      <IconSymbol name="checkmark" size={16} color={type.color} />
+                      <IconSymbol
+                        name="checkmark"
+                        size={16}
+                        color={type.color}
+                      />
                     ) : null}
                   </Pressable>
                 );
@@ -417,7 +466,9 @@ export default function ReportScreen() {
             { backgroundColor: cardBackground, borderColor },
           ]}
         >
-          <ThemedText style={styles.sectionTitle}>{t("report.location")}</ThemedText>
+          <ThemedText style={styles.sectionTitle}>
+            {t("report.location")}
+          </ThemedText>
           <View style={styles.locationRow}>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.locationLabel}>
@@ -491,7 +542,9 @@ export default function ReportScreen() {
             { backgroundColor: cardBackground, borderColor },
           ]}
         >
-          <ThemedText style={styles.sectionTitle}>{t("report.severity")}</ThemedText>
+          <ThemedText style={styles.sectionTitle}>
+            {t("report.severity")}
+          </ThemedText>
           <View style={styles.severityRow}>
             {["Low", "Medium", "High"].map((level) => {
               const active = severity === level;
@@ -518,13 +571,13 @@ export default function ReportScreen() {
                   <ThemedText
                     style={[styles.severityText, active && { color }]}
                   >
-                  {level === "High"
-                    ? t("severity.high")
-                    : level === "Medium"
-                      ? t("severity.medium")
-                      : t("severity.low")}
-                </ThemedText>
-              </Pressable>
+                    {level === "High"
+                      ? t("severity.high")
+                      : level === "Medium"
+                        ? t("severity.medium")
+                        : t("severity.low")}
+                  </ThemedText>
+                </Pressable>
               );
             })}
           </View>
@@ -536,7 +589,9 @@ export default function ReportScreen() {
             { backgroundColor: cardBackground, borderColor },
           ]}
         >
-          <ThemedText style={styles.sectionTitle}>{t("report.details")}</ThemedText>
+          <ThemedText style={styles.sectionTitle}>
+            {t("report.details")}
+          </ThemedText>
           <TextInput
             style={[styles.input, { color: isDarkMode ? "#fff" : "#111" }]}
             value={summary}
@@ -558,9 +613,7 @@ export default function ReportScreen() {
             placeholderTextColor={isDarkMode ? "#6c6c70" : "#999"}
             multiline
           />
-          <Text style={styles.helperText}>
-            {t("report.helper")}
-          </Text>
+          <Text style={styles.helperText}>{t("report.helper")}</Text>
           <Pressable
             style={[styles.attachButton, { borderColor }]}
             onPress={() => setShowDetails((prev) => !prev)}
@@ -582,12 +635,23 @@ export default function ReportScreen() {
         </View>
 
         {confirmation ? (
-          <View style={[styles.confirmationCard, { borderColor, backgroundColor: isDarkMode ? "#122024" : "#f1f9f6" }]}>
+          <View
+            style={[
+              styles.confirmationCard,
+              {
+                borderColor,
+                backgroundColor: isDarkMode ? "#122024" : "#f1f9f6",
+              },
+            ]}
+          >
             <ThemedText style={styles.confirmationText}>
               {confirmation}
             </ThemedText>
             <Pressable
-              style={[styles.confirmationButton, { backgroundColor: TealColors.primary }]}
+              style={[
+                styles.confirmationButton,
+                { backgroundColor: TealColors.primary },
+              ]}
               onPress={() => {
                 if (lastIncidentChat) {
                   router.push({
@@ -598,13 +662,21 @@ export default function ReportScreen() {
               }}
             >
               <IconSymbol name="bubble.right" size={16} color="#fff" />
-              <Text style={styles.confirmationButtonText}>{t("report.openChat")}</Text>
+              <Text style={styles.confirmationButtonText}>
+                {t("report.openChat")}
+              </Text>
             </Pressable>
           </View>
         ) : null}
         {!confirmation && lastIncidentChat ? (
           <Pressable
-            style={[styles.resumeChip, { borderColor: TealColors.primary, backgroundColor: isDarkMode ? "#102026" : "#e8f6f2" }]}
+            style={[
+              styles.resumeChip,
+              {
+                borderColor: TealColors.primary,
+                backgroundColor: isDarkMode ? "#102026" : "#e8f6f2",
+              },
+            ]}
             onPress={() =>
               router.push({
                 pathname: "/chat/[id]",
@@ -612,7 +684,11 @@ export default function ReportScreen() {
               } as never)
             }
           >
-            <IconSymbol name="arrow.uturn.right" size={14} color={TealColors.primary} />
+            <IconSymbol
+              name="arrow.uturn.right"
+              size={14}
+              color={TealColors.primary}
+            />
             <Text style={[styles.resumeText, { color: TealColors.primary }]}>
               {t("report.resumeChip")}
             </Text>
@@ -678,7 +754,6 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     borderWidth: 1,
     borderColor: "rgba(52, 211, 153, 0.25)",
-    marginTop: 12,
   },
   heroHeader: {
     flexDirection: "row",
