@@ -9,7 +9,7 @@ type IconMapping = Record<
   SymbolViewProps["name"],
   ComponentProps<typeof Ionicons>["name"]
 >;
-type IconSymbolName = keyof typeof MAPPING;
+export type IconSymbolName = keyof typeof MAPPING;
 
 /**
  * Add your SF Symbols to Ionicons mappings here.
@@ -57,8 +57,8 @@ const MAPPING = {
   "antenna.radiowaves.left.and.right": "radio-outline",
   archivebox: "archive-outline",
   filter: "filter",
-  "car-sport": "car-sport",
-  "weather-partly-snowy-rainy": "partly-sunny",
+  "car.side": "car-sport-outline",
+  "cloud.sun": "partly-sunny-outline",
   megaphone: "megaphone-outline",
   clock: "time",
   "info.circle": "information-circle",
@@ -86,6 +86,7 @@ const MAPPING = {
   "bubble.left.and.bubble.right": "chatbubbles-outline",
   "person.crop.circle.badge.checkmark": "person-circle-outline",
   "doc.text.magnifyingglass": "document-text-outline",
+  "clock.arrow.circlepath": "time-outline",
 } as unknown as IconMapping;
 
 /**
@@ -107,7 +108,5 @@ export function IconSymbol({
 }) {
   const mappedName = MAPPING[name as IconSymbolName] ?? "help-circle-outline";
 
-  return (
-    <Ionicons color={color} size={size} name={mappedName} style={style} />
-  );
+  return <Ionicons color={color} size={size} name={mappedName} style={style} />;
 }

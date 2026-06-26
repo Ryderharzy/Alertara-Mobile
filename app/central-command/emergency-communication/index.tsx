@@ -1,15 +1,22 @@
 import { Header } from "@/components/header";
 import { ThemedText } from "@/components/themed-text";
-import { IconSymbol } from "@/components/ui/icon-symbol";
+import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 
 type ModuleCard = {
   title: string;
-  icon: string;
+  icon: IconSymbolName;
   desc: string;
   access: "user" | "admin";
   // For user-side routing. For admin modules, this is what we suggest instead.
@@ -81,7 +88,7 @@ export default function EcsHome() {
         userCtaLabel: "Open History",
       },
     ],
-    []
+    [],
   );
 
   return (
@@ -94,20 +101,27 @@ export default function EcsHome() {
         <Pressable style={styles.backBtn} onPress={() => router.back()}>
           <View style={styles.backRow}>
             <IconSymbol name="arrow.left" size={16} color={accent} />
-            <ThemedText style={[styles.backText, { color: accent }]}>Back</ThemedText>
+            <ThemedText style={[styles.backText, { color: accent }]}>
+              Back
+            </ThemedText>
           </View>
         </Pressable>
 
         <View style={styles.hero}>
           <View style={[styles.heroIcon, { backgroundColor: accent }]}>
-            <IconSymbol name="antenna.radiowaves.left.and.right" size={26} color="#fff" />
+            <IconSymbol
+              name="antenna.radiowaves.left.and.right"
+              size={26}
+              color="#fff"
+            />
           </View>
           <View style={{ flex: 1 }}>
             <ThemedText type="title" style={[styles.title, { color: text }]}>
               Emergency Communication System
             </ThemedText>
             <ThemedText style={[styles.subtitle, { color: muted }]}>
-              Mass notifications, multilingual delivery, two-way feedback, and auditability.
+              Mass notifications, multilingual delivery, two-way feedback, and
+              auditability.
             </ThemedText>
           </View>
         </View>
@@ -116,7 +130,14 @@ export default function EcsHome() {
           {modules.map((m) => (
             <Pressable
               key={m.title}
-              style={[styles.card, { backgroundColor: cardBg, borderColor: border, shadowColor: "#000" }]}
+              style={[
+                styles.card,
+                {
+                  backgroundColor: cardBg,
+                  borderColor: border,
+                  shadowColor: "#000",
+                },
+              ]}
               onPress={() => {
                 if (m.access === "admin") {
                   setLocked(m);
@@ -124,17 +145,33 @@ export default function EcsHome() {
                 }
                 if (m.title === "Language Support") {
                   // Switch to Profile and jump to the Language picker in Preferences.
-                  router.push({ pathname: "/me", params: { scrollTo: "language" } } as never);
+                  router.push({
+                    pathname: "/me",
+                    params: { scrollTo: "language" },
+                  } as never);
                   return;
                 }
                 router.push(m.userRoute as never);
               }}
             >
-              <View style={[styles.cardIcon, { backgroundColor: isDarkMode ? "rgba(22,163,74,0.16)" : "#e8f1ff" }]}>
-                <IconSymbol name={m.icon as any} size={20} color={accent} />
+              <View
+                style={[
+                  styles.cardIcon,
+                  {
+                    backgroundColor: isDarkMode
+                      ? "rgba(22,163,74,0.16)"
+                      : "#e8f1ff",
+                  },
+                ]}
+              >
+                <IconSymbol name={m.icon} size={20} color={accent} />
               </View>
-              <ThemedText style={[styles.cardTitle, { color: text }]}>{m.title}</ThemedText>
-              <ThemedText style={[styles.cardDesc, { color: muted }]}>{m.desc}</ThemedText>
+              <ThemedText style={[styles.cardTitle, { color: text }]}>
+                {m.title}
+              </ThemedText>
+              <ThemedText style={[styles.cardDesc, { color: muted }]}>
+                {m.desc}
+              </ThemedText>
               <View style={styles.cardFooter}>
                 {m.access === "admin" ? (
                   <ThemedText style={[styles.lockedPill, { color: accent }]}>
@@ -158,12 +195,24 @@ export default function EcsHome() {
       >
         <Pressable style={styles.modalOverlay} onPress={() => setLocked(null)}>
           <Pressable
-            style={[styles.modalCard, { backgroundColor: cardBg, borderColor: border }]}
+            style={[
+              styles.modalCard,
+              { backgroundColor: cardBg, borderColor: border },
+            ]}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.modalHeader}>
-              <View style={[styles.modalIcon, { backgroundColor: "rgba(22,163,74,0.16)" }]}>
-                <IconSymbol name={(locked?.icon ?? "info") as any} size={18} color={accent} />
+              <View
+                style={[
+                  styles.modalIcon,
+                  { backgroundColor: "rgba(22,163,74,0.16)" },
+                ]}
+              >
+                <IconSymbol
+                  name={locked?.icon ?? "info"}
+                  size={18}
+                  color={accent}
+                />
               </View>
               <ThemedText style={[styles.modalTitle, { color: text }]}>
                 {locked?.title}
@@ -173,7 +222,8 @@ export default function EcsHome() {
               {locked?.desc}
             </ThemedText>
             <ThemedText style={[styles.modalHint, { color: muted }]}>
-              This module is managed by Central Command staff. You can still access the user feature below.
+              This module is managed by Central Command staff. You can still
+              access the user feature below.
             </ThemedText>
             <Pressable
               style={[styles.modalCta, { backgroundColor: accent }]}
@@ -182,7 +232,10 @@ export default function EcsHome() {
                 const route = locked.userRoute;
                 setLocked(null);
                 if (locked.title === "Language Support") {
-                  router.push({ pathname: "/me", params: { scrollTo: "language" } } as never);
+                  router.push({
+                    pathname: "/me",
+                    params: { scrollTo: "language" },
+                  } as never);
                   return;
                 }
                 router.push(route as never);
@@ -192,8 +245,13 @@ export default function EcsHome() {
                 {locked?.userCtaLabel ?? "Open"}
               </ThemedText>
             </Pressable>
-            <Pressable style={styles.modalClose} onPress={() => setLocked(null)}>
-              <ThemedText style={[styles.modalCloseText, { color: accent }]}>Close</ThemedText>
+            <Pressable
+              style={styles.modalClose}
+              onPress={() => setLocked(null)}
+            >
+              <ThemedText style={[styles.modalCloseText, { color: accent }]}>
+                Close
+              </ThemedText>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -205,18 +263,45 @@ export default function EcsHome() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   // Match the header's left/right inset (Header uses 14px).
-  content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 16, gap: 12 },
-  backBtn: { alignSelf: "flex-start", paddingVertical: 4, paddingHorizontal: 0 },
+  content: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 16,
+    gap: 12,
+  },
+  backBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+  },
   backRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   backText: { fontSize: 16, fontWeight: "700" },
   // Match the reference: icon aligns with the top of the title block (not vertically centered)
-  hero: { flexDirection: "row", gap: 12, alignItems: "flex-start", paddingTop: 2 },
-  heroIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", marginTop: 2 },
+  hero: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+    paddingTop: 2,
+  },
+  heroIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
   title: { fontSize: 24, fontWeight: "800", lineHeight: 28 },
   subtitle: { fontSize: 14, lineHeight: 18, marginTop: 2 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   card: { width: "48%", borderRadius: 16, borderWidth: 1, padding: 12, gap: 6 },
-  cardIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  cardIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cardTitle: { fontSize: 15, fontWeight: "700" },
   cardDesc: { fontSize: 12 },
   cardFooter: {
