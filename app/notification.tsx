@@ -39,6 +39,17 @@ type NotificationItem = {
   source: string;
 };
 
+type GNewsArticle = {
+  title?: string;
+  description?: string;
+  content?: string;
+  url?: string;
+  publishedAt?: string;
+  source?: {
+    name?: string;
+  };
+};
+
 const notificationsByCategory: Record<string, NotificationItem[]> = {
   General: [
     {
@@ -217,6 +228,7 @@ const severityColors: Record<string, string> = {
 
 const categoryTabs = [
   { key: "General", icon: "info.circle" },
+  { key: "Local News", icon: "newspaper" },
   { key: "Alert", icon: "exclamationmark" },
   { key: "Announcement", icon: "megaphone" },
   { key: "Reminder", icon: "clock" },
@@ -491,6 +503,7 @@ const NotificationCard = ({
 export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
   const router = useRouter();
+  const gnewsApiKey = process.env.EXPO_PUBLIC_GNEWS_API_KEY;
   const screenBackground = isDarkMode ? "#0f1c1f" : "#f2efe8";
   const cardBackground = isDarkMode ? "#18252a" : "#ffffff";
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
@@ -504,6 +517,9 @@ export default function NotificationScreen() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchMounted, setSearchMounted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [localNewsItems, setLocalNewsItems] = useState<NotificationItem[]>([]);
+  const [localNewsLoading, setLocalNewsLoading] = useState(false);
+  const [localNewsError, setLocalNewsError] = useState("");
   const searchAnim = useRef(new Animated.Value(0)).current;
   const translateX = slideAnim.interpolate({
     inputRange: [0, 1],
@@ -553,7 +569,92 @@ export default function NotificationScreen() {
     }
   }, [searchVisible, searchAnim]);
 
-  const currentNotifications = notificationsByCategory[selectedCategory] ?? [];
+  useEffect(() => {
+    let active = true;
+
+    const loadLocalNews = async () => {
+      if (!gnewsApiKey) {
+        setLocalNewsError("Missing GNews API key.");
+        return;
+      }
+
+      setLocalNewsLoading(true);
+      setLocalNewsError("");
+
+      try {
+        const params = new URLSearchParams({
+          q: '"Quezon City" OR "Metro Manila" OR Philippines',
+          lang: "en",
+          max: "6",
+          sortby: "publishedAt",
+          nullable: "description,content",
+          apikey: gnewsApiKey,
+        });
+        const url = `https://gnews.io/api/v4/search?${params.toString()}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            errorText || `GNews request failed (${response.status})`
+          );
+        }
+
+        const data = (await response.json()) as { articles?: GNewsArticle[] };
+        const articles = Array.isArray(data.articles) ? data.articles : [];
+
+        if (!active) {
+          return;
+        }
+
+        setLocalNewsItems(
+          articles.map((article, index) => ({
+            id: `local-news-${index}-${article.url ?? article.title ?? "article"}`,
+            category: "Local News",
+            icon: "newspaper",
+            title: article.title?.trim() || "Local News Update",
+            type: "GNews Story",
+            alertType: "Type: Local News",
+            severity: "LOW",
+            timestamp: article.publishedAt
+              ? new Date(article.publishedAt).toLocaleString()
+              : "Recently",
+            description:
+              article.description?.trim() ||
+              article.content?.trim() ||
+              "Tap to read the full story.",
+            actions: [
+              article.source?.name
+                ? `Source: ${article.source.name}`
+                : "Source: GNews",
+            ],
+            source: article.source?.name || "GNews",
+          }))
+        );
+      } catch (error) {
+        if (active) {
+          setLocalNewsError(
+            error instanceof Error ? error.message : "Failed to load local news."
+          );
+        }
+      } finally {
+        if (active) {
+          setLocalNewsLoading(false);
+        }
+      }
+    };
+
+    loadLocalNews();
+
+    return () => {
+      active = false;
+    };
+  }, [gnewsApiKey]);
+
+  const currentNotifications =
+    selectedCategory === "Local News"
+      ? localNewsItems
+      : notificationsByCategory[selectedCategory] ?? [];
 
   const handleGeneralChat = () =>
     router.push({
@@ -804,6 +905,20 @@ export default function NotificationScreen() {
             highlightColor={highlightColor}
           />
         ))}
+        {selectedCategory === "Local News" && localNewsLoading && (
+          <View style={styles.statusCard}>
+            <ThemedText style={[styles.statusText, { color: textColor }]}>
+              Loading local news...
+            </ThemedText>
+          </View>
+        )}
+        {selectedCategory === "Local News" && localNewsError ? (
+          <View style={styles.statusCard}>
+            <ThemedText style={[styles.statusText, { color: textColor }]}>
+              {localNewsError}
+            </ThemedText>
+          </View>
+        ) : null}
       </ScrollView>
 
       <Pressable
@@ -953,6 +1068,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
     borderWidth: 1,
+  },
+  statusCard: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  statusText: {
+    fontSize: 13,
+    color: "#64748b",
   },
   card: {
     borderRadius: 18,

@@ -45,6 +45,7 @@ const MAPPING = {
   "arrow.left": "chevron-back",
   "map.fill": "map",
   map: "map-outline",
+  newspaper: "newspaper-outline",
   flame: "flame",
   shield: "shield",
   bandage: "bandage-outline",
