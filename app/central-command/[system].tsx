@@ -226,20 +226,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   moduleList: {
-    gap: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 8,
   },
   moduleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
+    width: "47%",
+    minWidth: 0,
   },
   moduleDot: {
-    width: 8,
-    height: 8,
+    width: 6,
+    height: 6,
     borderRadius: 4,
   },
   moduleText: {
-    fontSize: 14,
+    fontSize: 13,
   },
   sampleSection: {
     gap: 12,

@@ -16,6 +16,8 @@ import {
 import { useTheme } from "@/context/theme-context";
 import { useRouter } from "expo-router";
 import {
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Image,
   Pressable,
   SafeAreaView,
@@ -27,13 +29,22 @@ import {
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const [activeClusterId, setActiveClusterId] = useState(
-    systemClusters[0].id
-  );
+
+  const [activeClusterId, setActiveClusterId] = useState(systemClusters[0].id);
+
+  const [scrollMetrics, setScrollMetrics] = useState({
+    contentHeight: 1,
+    visibleHeight: 1,
+    scrollY: 0,
+  });
+
+  // NEW: actual rendered indicator track height
+  const [trackHeight, setTrackHeight] = useState(0);
 
   const activeCluster =
     systemClusters.find((cluster) => cluster.id === activeClusterId) ??
     systemClusters[0];
+
   const activeSystems = activeCluster.systems
     .map((id) => systemRegistry[id])
     .filter(Boolean);
@@ -41,6 +52,39 @@ export default function HomeScreen() {
   const handleSystemPress = (systemId: string) => {
     router.push(`/central-command/${systemId}`);
   };
+
+  // Scroll progress based on actual scrollable range
+  const maxScrollDistance = Math.max(
+    scrollMetrics.contentHeight - scrollMetrics.visibleHeight,
+    1
+  );
+
+  const scrollProgress = Math.max(
+    0,
+    Math.min(scrollMetrics.scrollY / maxScrollDistance, 1)
+  );
+
+  // Use the REAL rendered track height, not an estimated one
+  const safeContentHeight = Math.max(scrollMetrics.contentHeight, 1);
+  const safeVisibleHeight = Math.max(scrollMetrics.visibleHeight, 1);
+
+  // Thumb height proportional to visible content, clamped
+  const rawThumbHeight =
+    trackHeight > 0
+      ? (safeVisibleHeight / safeContentHeight) * trackHeight
+      : 0;
+
+  const indicatorFillHeight =
+    trackHeight > 0
+      ? Math.max(44, Math.min(rawThumbHeight, trackHeight))
+      : 0;
+
+  const indicatorTravelDistance = Math.max(
+    trackHeight - indicatorFillHeight,
+    0
+  );
+
+  const indicatorTranslateY = scrollProgress * indicatorTravelDistance;
 
   return (
     <SafeAreaView
@@ -54,8 +98,10 @@ export default function HomeScreen() {
       ]}
     >
       <Header />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
         style={[
           styles.content,
           {
@@ -64,6 +110,16 @@ export default function HomeScreen() {
               : Colors.light.background,
           },
         ]}
+        onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+          const { contentOffset, contentSize, layoutMeasurement } =
+            event.nativeEvent;
+
+          setScrollMetrics({
+            scrollY: contentOffset.y,
+            contentHeight: contentSize.height,
+            visibleHeight: layoutMeasurement.height,
+          });
+        }}
       >
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
@@ -105,7 +161,11 @@ export default function HomeScreen() {
                   { backgroundColor: "#F39C12" },
                 ]}
               >
-                <IconSymbol size={28} name="exclamationmark.triangle" color="#fff" />
+                <IconSymbol
+                  size={28}
+                  name="exclamationmark.triangle"
+                  color="#fff"
+                />
               </View>
               <ThemedText style={styles.serviceCardText}>Report</ThemedText>
             </Pressable>
@@ -234,11 +294,7 @@ export default function HomeScreen() {
                       { backgroundColor: system.accent },
                     ]}
                   >
-                    <IconSymbol
-                      size={20}
-                      name={system.icon}
-                      color="#fff"
-                    />
+                    <IconSymbol size={20} name={system.icon} color="#fff" />
                   </View>
                   <View style={styles.systemHeaderText}>
                     <ThemedText style={styles.systemCardTitle}>
@@ -309,6 +365,7 @@ export default function HomeScreen() {
         {/* Featured Services Section */}
         <View style={styles.featuredSection}>
           <ThemedText style={styles.sectionTitle}>Featured</ThemedText>
+
           <Pressable
             style={[
               styles.featuredCard,
@@ -332,6 +389,7 @@ export default function HomeScreen() {
               </ThemedText>
             </View>
           </Pressable>
+
           <Pressable
             style={[
               styles.featuredCard,
@@ -344,7 +402,11 @@ export default function HomeScreen() {
                 { backgroundColor: isDarkMode ? DARK_CARD_BG : "#fff" },
               ]}
             >
-              <IconSymbol size={24} name="line.3.horizontal" color={TealColors.primary} />
+              <IconSymbol
+                size={24}
+                name="line.3.horizontal"
+                color={TealColors.primary}
+              />
             </View>
             <View style={styles.featuredContent}>
               <ThemedText type="subtitle" style={styles.featuredTitle}>
@@ -357,9 +419,30 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Bottom Spacing */}
         <View style={styles.bottomSpacing} />
       </ScrollView>
+
+      {/* FIXED INDICATOR */}
+      <View
+        pointerEvents="none"
+        style={styles.scrollIndicatorTrack}
+        onLayout={(event) => {
+          const { height } = event.nativeEvent.layout;
+          setTrackHeight(height);
+        }}
+      >
+        {trackHeight > 0 && (
+          <View
+            style={[
+              styles.scrollIndicatorThumb,
+              {
+                height: indicatorFillHeight,
+                transform: [{ translateY: indicatorTranslateY }],
+              },
+            ]}
+          />
+        )}
+      </View>
 
       {/* Message Button */}
       <Pressable
@@ -389,6 +472,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 16,
   },
+
+  // Overlay track — height will be measured via onLayout
+  scrollIndicatorTrack: {
+    position: "absolute",
+    right: 6,
+    top: 132,
+    bottom: 32,
+    width: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(46, 204, 113, 0.18)",
+    overflow: "hidden",
+  },
+  scrollIndicatorThumb: {
+    width: "100%",
+    borderRadius: 999,
+    backgroundColor: "#2ECC71",
+  },
+
   welcomeSection: {
     marginBottom: 20,
   },
@@ -478,20 +579,25 @@ const styles = StyleSheet.create({
   },
   moduleList: {
     marginTop: 12,
-    gap: 8,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 6,
   },
   moduleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
+    width: "47%",
+    minWidth: 0,
   },
   moduleDot: {
-    width: 6,
-    height: 6,
+    width: 5,
+    height: 5,
     borderRadius: 3,
   },
   moduleText: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#555",
   },
   servicesSection: {
