@@ -122,21 +122,46 @@ export default function HomeScreen() {
         }}
       >
         {/* Welcome Section */}
-        <View style={styles.welcomeSection}>
+        <View
+          style={[
+            styles.welcomeSection,
+            {
+              backgroundColor: isDarkMode ? DARK_CARD_BG : "#e8f5f2",
+              borderColor: isDarkMode
+                ? DARK_BORDER
+                : "rgba(52, 211, 153, 0.25)",
+            },
+          ]}
+        >
           <View style={styles.welcomeTitleRow}>
             <ThemedText style={styles.welcomeText}>Welcome back!</ThemedText>
-            <View
-              style={[
-                styles.welcomeIcon,
-                { backgroundColor: isDarkMode ? DARK_CARD_BG : LIGHT_CARD_BG },
-              ]}
-            >
-              <IconSymbol size={32} name="house" color={TealColors.primary} />
-            </View>
           </View>
           <ThemedText style={styles.subText}>
             Your main services and role-based systems in one place
           </ThemedText>
+        </View>
+
+        {/* SUGGESTION: At a Glance / Status Section */}
+        <View style={styles.glanceSection}>
+          <Pressable
+            style={[
+              styles.glanceCard,
+              {
+                backgroundColor: isDarkMode ? "#2a1a1a" : "#fff4f4",
+                borderColor: isDarkMode ? "#5c2d2d" : "#f7e4e4",
+              },
+            ]}
+          >
+            <IconSymbol name="bell.badge" size={20} color="#e53935" />
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.glanceTitle}>
+                2 Active High-Priority Alerts
+              </ThemedText>
+              <ThemedText style={styles.glanceSubtitle}>
+                Tap to view details
+              </ThemedText>
+            </View>
+          </Pressable>
         </View>
 
         {/* Main Services */}
@@ -492,31 +517,48 @@ const styles = StyleSheet.create({
 
   welcomeSection: {
     marginBottom: 20,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
   },
   welcomeTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 4,
+    marginBottom: 8,
   },
   welcomeText: {
     fontSize: 32,
     fontWeight: "700",
     color: TealColors.primary,
   },
-  welcomeIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#f5f5f5",
-    justifyContent: "center",
-    alignItems: "center",
-  },
   subText: {
     fontSize: 15,
     color: "#999",
     fontWeight: "400",
   },
+  // SUGGESTION: Styles for the new "At a Glance" section
+  glanceSection: {
+    marginBottom: 20,
+  },
+  glanceCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  glanceTitle: {
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  glanceSubtitle: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 2,
+  },
+  // End of new styles
   centralCommandSection: {
     marginBottom: 28,
   },
