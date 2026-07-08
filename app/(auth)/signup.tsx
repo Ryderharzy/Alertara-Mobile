@@ -8,9 +8,12 @@ import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -26,7 +29,7 @@ import { styles } from "./login";
 export default function SignupScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { signUp } = useAuth();
+  const { signUp, activateSession } = useAuth();
   const colors = Colors[isDarkMode ? "dark" : "light"];
   const bgColor = isDarkMode ? DARK_BACKGROUND : LIGHT_BACKGROUND;
   const [name, setName] = useState("");
@@ -37,6 +40,10 @@ export default function SignupScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [successVisible, setSuccessVisible] = useState(false);
+  const [pendingUser, setPendingUser] = useState<{ id: number; name: string; email: string; phone: string | null; status: string | null; user_type: string | null } | null>(null);
+  const successScale = useRef(new Animated.Value(0.7)).current;
+  const successOpacity = useRef(new Animated.Value(0)).current;
 
   const handleSignUp = async () => {
     if (!name || !email || !phone || !password || !confirmPassword) {
@@ -56,8 +63,10 @@ export default function SignupScreen() {
 
     try {
       setLoading(true);
-      await signUp(name, email, password, phone);
-      router.replace("/(tabs)");
+      const user = await signUp(name, email, password, phone);
+      setLoading(false);
+      setPendingUser(user);
+      setSuccessVisible(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Please try again with different credentials";
       Alert.alert(
@@ -69,6 +78,34 @@ export default function SignupScreen() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!successVisible) return;
+
+    Animated.parallel([
+      Animated.timing(successOpacity, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(successScale, {
+        toValue: 1,
+        friction: 7,
+        tension: 70,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const timeout = setTimeout(() => {
+      setSuccessVisible(false);
+      if (pendingUser) {
+        activateSession(pendingUser);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timeout);
+  }, [activateSession, pendingUser, router, successOpacity, successScale, successVisible]);
 
   const handleLogin = () => {
     router.back();
@@ -327,6 +364,24 @@ export default function SignupScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {successVisible && (
+        <Animated.View style={[styles.successOverlay, { opacity: successOpacity }]}>
+          <Animated.View
+            style={[
+              styles.successCard,
+              { transform: [{ scale: successScale }] },
+            ]}
+          >
+            <View style={styles.successIconCircle}>
+              <Ionicons name="checkmark" size={34} color="#fff" />
+            </View>
+            <Text style={styles.successTitle}>Account created</Text>
+            <Text style={styles.successSubtitle}>Verification successful</Text>
+            <ActivityIndicator color={TealColors.primary} style={{ marginTop: 12 }} />
+          </Animated.View>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }

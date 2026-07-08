@@ -7,9 +7,10 @@ type AuthContextType = {
   isLoading: boolean;
   userToken: string | null;
   userProfile: UserProfile | null;
-    onboardingCompleted: boolean;
-    signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string, phone: string) => Promise<void>;
+  onboardingCompleted: boolean;
+  signIn: (email: string, password: string) => Promise<UserProfile>;
+  signUp: (name: string, email: string, password: string, phone: string) => Promise<UserProfile>;
+  activateSession: (user: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
 };
@@ -47,6 +48,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         if (profile) {
           setUserProfile(JSON.parse(profile) as UserProfile);
+        } else {
+          setUserProfile(null);
         }
 
         // Only set onboarding completed if it was saved (should be null due to above clear)
@@ -76,11 +79,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         const signedInUser = response.data.user as UserProfile;
-        const token = `user_${signedInUser.id}`;
-        setUserToken(token);
-        setUserProfile(signedInUser);
-        await AsyncStorage.setItem('userToken', token);
-        await AsyncStorage.setItem('userProfile', JSON.stringify(signedInUser));
+        return signedInUser;
       } catch (error) {
         console.error('Login failed:', error);
         if (axios.isAxiosError(error) && error.response?.status === 422) {
@@ -109,11 +108,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         const createdUser = response.data.user as UserProfile;
-        const token = `user_${createdUser.id}`;
-        setUserToken(token);
-        setUserProfile(createdUser);
-        await AsyncStorage.setItem('userToken', token);
-        await AsyncStorage.setItem('userProfile', JSON.stringify(createdUser));
+        return createdUser;
       } catch (error) {
         console.error('Signup failed:', error);
         if (axios.isAxiosError(error) && error.response?.status === 422) {
@@ -128,6 +123,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
         throw error;
       }
+    },
+    activateSession: async (user: UserProfile) => {
+      const token = `user_${user.id}`;
+      setUserToken(token);
+      setUserProfile(user);
+      await AsyncStorage.setItem('userToken', token);
+      await AsyncStorage.setItem('userProfile', JSON.stringify(user));
     },
     signOut: async () => {
       try {

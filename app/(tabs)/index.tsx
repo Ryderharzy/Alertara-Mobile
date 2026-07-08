@@ -13,6 +13,7 @@ import {
   LIGHT_ICON,
   TealColors,
 } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useRouter } from "expo-router";
 import {
@@ -29,6 +30,7 @@ import {
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
+  const { userProfile } = useAuth();
 
   const [activeClusterId, setActiveClusterId] = useState(systemClusters[0].id);
 
@@ -85,6 +87,7 @@ export default function HomeScreen() {
   );
 
   const indicatorTranslateY = scrollProgress * indicatorTravelDistance;
+  const greetingName = userProfile?.name?.split(" ")[0] ?? "there";
 
   return (
     <SafeAreaView
@@ -134,7 +137,9 @@ export default function HomeScreen() {
           ]}
         >
           <View style={styles.welcomeTitleRow}>
-            <ThemedText style={styles.welcomeText}>Welcome back!</ThemedText>
+            <ThemedText style={styles.welcomeText}>
+              Welcome back, {greetingName}!
+            </ThemedText>
           </View>
           <ThemedText style={styles.subText}>
             Your main services and role-based systems in one place
