@@ -50,9 +50,17 @@ export default function HomeScreen() {
   const activeSystems = activeCluster.systems
     .map((id) => systemRegistry[id])
     .filter(Boolean);
+  const isLoggedIn = Boolean(userProfile?.id);
+  const greetingName = userProfile?.name?.split(" ")[0] ?? "there";
+  const activeAlertCount = 2;
+  const recentSystemSummary = activeSystems.slice(0, 3);
 
   const handleSystemPress = (systemId: string) => {
     router.push(`/central-command/${systemId}`);
+  };
+
+  const handleQuickAction = (target: string) => {
+    router.push(target as never);
   };
 
   // Scroll progress based on actual scrollable range
@@ -87,7 +95,6 @@ export default function HomeScreen() {
   );
 
   const indicatorTranslateY = scrollProgress * indicatorTravelDistance;
-  const greetingName = userProfile?.name?.split(" ")[0] ?? "there";
 
   return (
     <SafeAreaView
@@ -137,36 +144,159 @@ export default function HomeScreen() {
           ]}
         >
           <View style={styles.welcomeTitleRow}>
-            <ThemedText style={styles.welcomeText}>
-              Welcome back, {greetingName}!
-            </ThemedText>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.welcomeEyebrow}>
+                {isLoggedIn ? "Signed in" : "Guest mode"}
+              </ThemedText>
+              <ThemedText style={styles.welcomeText}>
+                Welcome back, {greetingName}!
+              </ThemedText>
+            </View>
+            <View
+              style={[
+                styles.statusPill,
+                {
+                  backgroundColor: activeAlertCount > 0 ? "#fef2f2" : "#ecfdf5",
+                },
+              ]}
+            >
+              <ThemedText
+                style={[
+                  styles.statusPillText,
+                  { color: activeAlertCount > 0 ? "#dc2626" : "#059669" },
+                ]}
+              >
+                {activeAlertCount > 0
+                  ? `${activeAlertCount} alerts`
+                  : "All clear"}
+              </ThemedText>
+            </View>
           </View>
           <ThemedText style={styles.subText}>
-            Your main services and role-based systems in one place
+            {isLoggedIn
+              ? "Your live safety controls, alerts, and services are ready."
+              : "You can use the app without signing in, or save your profile anytime."}
           </ThemedText>
         </View>
 
-        {/* SUGGESTION: At a Glance / Status Section */}
+        {/* Live Status */}
         <View style={styles.glanceSection}>
           <Pressable
             style={[
               styles.glanceCard,
               {
-                backgroundColor: isDarkMode ? "#2a1a1a" : "#fff4f4",
-                borderColor: isDarkMode ? "#5c2d2d" : "#f7e4e4",
+                backgroundColor: isDarkMode ? "#251f1f" : "#fff7ed",
+                borderColor: isDarkMode ? "#61452f" : "#fed7aa",
+              },
+            ]}
+            onPress={() => router.push("/notification")}
+          >
+            <IconSymbol
+              name="bell.badge"
+              size={20}
+              color={activeAlertCount > 0 ? "#e53935" : "#059669"}
+            />
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.glanceTitle}>
+                {activeAlertCount > 0
+                  ? `${activeAlertCount} active alerts`
+                  : "No active alerts"}
+              </ThemedText>
+              <ThemedText style={styles.glanceSubtitle}>
+                {activeAlertCount > 0
+                  ? "Tap for live updates and guidance"
+                  : "You’re currently in monitoring mode"}
+              </ThemedText>
+            </View>
+            <IconSymbol
+              name="chevron.right"
+              size={18}
+              color={isDarkMode ? DARK_ICON : LIGHT_ICON}
+            />
+          </Pressable>
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.quickActionsSection}>
+          <View style={styles.sectionTitleContainer}>
+            <ThemedText style={styles.sectionTitle}>Quick Actions</ThemedText>
+          </View>
+          <View style={styles.quickActionsGrid}>
+            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/report")}>
+              <IconSymbol name="exclamationmark.triangle" size={22} color="#fff" />
+              <ThemedText style={styles.quickActionText}>Report</ThemedText>
+            </Pressable>
+            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/map")}>
+              <IconSymbol name="location" size={22} color="#fff" />
+              <ThemedText style={styles.quickActionText}>Map</ThemedText>
+            </Pressable>
+            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/notification")}>
+              <IconSymbol name="bell" size={22} color="#fff" />
+              <ThemedText style={styles.quickActionText}>Alerts</ThemedText>
+            </Pressable>
+            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/submit-tip")}>
+              <IconSymbol name="paperplane.fill" size={22} color="#fff" />
+              <ThemedText style={styles.quickActionText}>Tip</ThemedText>
+            </Pressable>
+            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/me")}>
+              <IconSymbol name="person" size={22} color="#fff" />
+              <ThemedText style={styles.quickActionText}>Profile</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Account / System Snapshot */}
+        <View style={styles.snapshotSection}>
+          <View
+            style={[
+              styles.snapshotCard,
+              {
+                backgroundColor: isDarkMode ? DARK_CARD_BG : LIGHT_CARD_BG,
               },
             ]}
           >
-            <IconSymbol name="bell.badge" size={20} color="#e53935" />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.glanceTitle}>
-                2 Active High-Priority Alerts
+            <View style={styles.snapshotHeader}>
+              <ThemedText style={styles.snapshotTitle}>
+                {isLoggedIn ? "My Account" : "Guest Session"}
               </ThemedText>
-              <ThemedText style={styles.glanceSubtitle}>
-                Tap to view details
-              </ThemedText>
+              <View style={styles.snapshotBadge}>
+                <ThemedText style={styles.snapshotBadgeText}>
+                  {isLoggedIn ? "Saved" : "Optional"}
+                </ThemedText>
+              </View>
             </View>
-          </Pressable>
+            <ThemedText style={styles.snapshotText}>
+              {isLoggedIn
+                ? "Your preferences and alerts are synced to your profile."
+                : "You can sign in anytime to sync your profile and preferences."}
+            </ThemedText>
+          </View>
+
+          <View style={styles.systemSummaryGrid}>
+            {recentSystemSummary.map((system) => (
+              <Pressable
+                key={system.id}
+                style={[
+                  styles.systemSummaryCard,
+                  {
+                    backgroundColor: isDarkMode ? DARK_CARD_BG : LIGHT_CARD_BG,
+                    borderColor: isDarkMode ? DARK_BORDER : LIGHT_BORDER,
+                  },
+                ]}
+                onPress={() => handleSystemPress(system.id)}
+              >
+                <View style={[styles.systemSummaryIcon, { backgroundColor: system.accent }]}>
+                  <IconSymbol size={18} name={system.icon} color="#fff" />
+                </View>
+                <ThemedText style={styles.systemSummaryTitle}>
+                  {system.title}
+                </ThemedText>
+                <ThemedText style={styles.systemSummaryText} numberOfLines={2}>
+                  {system.description}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
         </View>
 
         {/* Main Services */}
@@ -200,10 +330,7 @@ export default function HomeScreen() {
               <ThemedText style={styles.serviceCardText}>Report</ThemedText>
             </Pressable>
 
-            <Pressable
-              style={styles.serviceIconOnly}
-              onPress={() => router.push("/map")}
-            >
+            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/map")}>
               <View
                 style={[
                   styles.serviceIconCircle,
@@ -215,10 +342,7 @@ export default function HomeScreen() {
               <ThemedText style={styles.serviceCardText}>Map</ThemedText>
             </Pressable>
 
-            <Pressable
-              style={styles.serviceIconOnly}
-              onPress={() => router.push("/submit-tip")}
-            >
+            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/submit-tip")}>
               <View
                 style={[
                   styles.serviceIconCircle,
@@ -230,10 +354,7 @@ export default function HomeScreen() {
               <ThemedText style={styles.serviceCardText}>Tip</ThemedText>
             </Pressable>
 
-            <Pressable
-              style={styles.serviceIconOnly}
-              onPress={() => router.push("/notification")}
-            >
+            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/notification")}>
               <View
                 style={[
                   styles.serviceIconCircle,
@@ -245,10 +366,7 @@ export default function HomeScreen() {
               <ThemedText style={styles.serviceCardText}>Alerts</ThemedText>
             </Pressable>
 
-            <Pressable
-              style={styles.serviceIconOnly}
-              onPress={() => router.push("/me")}
-            >
+            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/me")}>
               <View
                 style={[
                   styles.serviceIconCircle,
@@ -522,8 +640,8 @@ const styles = StyleSheet.create({
 
   welcomeSection: {
     marginBottom: 20,
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 22,
+    padding: 18,
     borderWidth: 1,
   },
   welcomeTitleRow: {
@@ -531,16 +649,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 8,
+    gap: 12,
+  },
+  welcomeEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: TealColors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
   welcomeText: {
-    fontSize: 32,
-    fontWeight: "700",
+    fontSize: 30,
+    fontWeight: "800",
     color: TealColors.primary,
   },
   subText: {
     fontSize: 15,
-    color: "#999",
+    color: "#777",
     fontWeight: "400",
+    lineHeight: 21,
+  },
+  statusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   // SUGGESTION: Styles for the new "At a Glance" section
   glanceSection: {
@@ -550,18 +687,107 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 14,
-    borderRadius: 16,
+    padding: 16,
+    borderRadius: 18,
     borderWidth: 1,
   },
   glanceTitle: {
-    fontWeight: "700",
-    fontSize: 14,
+    fontWeight: "800",
+    fontSize: 15,
   },
   glanceSubtitle: {
     fontSize: 12,
     color: "#666",
     marginTop: 2,
+  },
+  quickActionsSection: {
+    marginBottom: 26,
+  },
+  quickActionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  quickActionCard: {
+    width: "30.5%",
+    minWidth: 92,
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: TealColors.primary,
+    gap: 8,
+  },
+  quickActionText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  snapshotSection: {
+    marginBottom: 28,
+    gap: 12,
+  },
+  snapshotCard: {
+    borderRadius: 18,
+    padding: 16,
+  },
+  snapshotHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 12,
+  },
+  snapshotTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  snapshotBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(46, 204, 113, 0.16)",
+  },
+  snapshotBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: TealColors.primary,
+  },
+  snapshotText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#777",
+  },
+  systemSummaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  systemSummaryCard: {
+    width: "31%",
+    minWidth: 108,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    gap: 8,
+  },
+  systemSummaryIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  systemSummaryTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  systemSummaryText: {
+    fontSize: 11,
+    color: "#666",
+    lineHeight: 15,
   },
   // End of new styles
   centralCommandSection: {
