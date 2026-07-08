@@ -216,6 +216,13 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
+        <View
+          style={[
+            styles.sectionSeparator,
+            { backgroundColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(17,24,39,0.08)" },
+          ]}
+        />
+
         {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
           <View style={styles.sectionTitleContainer}>
@@ -244,6 +251,13 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         </View>
+
+        <View
+          style={[
+            styles.sectionSeparator,
+            { backgroundColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(17,24,39,0.08)" },
+          ]}
+        />
 
         {/* Account / System Snapshot */}
         <View style={styles.snapshotSection}>
@@ -299,86 +313,12 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Main Services */}
-        <View style={styles.servicesSection}>
-          <View style={styles.sectionTitleContainer}>
-            <ThemedText style={styles.sectionTitle}>Dashboard</ThemedText>
-            <IconSymbol
-              size={20}
-              name="chevron.right"
-              color={isDarkMode ? DARK_ICON : LIGHT_ICON}
-            />
-          </View>
-
-          <View style={styles.servicesGrid}>
-            <Pressable
-              style={styles.serviceIconOnly}
-              onPress={() => router.push("/report")}
-            >
-              <View
-                style={[
-                  styles.serviceIconCircle,
-                  { backgroundColor: "#F39C12" },
-                ]}
-              >
-                <IconSymbol
-                  size={28}
-                  name="exclamationmark.triangle"
-                  color="#fff"
-                />
-              </View>
-              <ThemedText style={styles.serviceCardText}>Report</ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/map")}>
-              <View
-                style={[
-                  styles.serviceIconCircle,
-                  { backgroundColor: "#E74C3C" },
-                ]}
-              >
-                <IconSymbol size={28} name="location" color="#fff" />
-              </View>
-              <ThemedText style={styles.serviceCardText}>Map</ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/submit-tip")}>
-              <View
-                style={[
-                  styles.serviceIconCircle,
-                  { backgroundColor: "#3498DB" },
-                ]}
-              >
-                <IconSymbol size={28} name="paperplane.fill" color="#fff" />
-              </View>
-              <ThemedText style={styles.serviceCardText}>Tip</ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/notification")}>
-              <View
-                style={[
-                  styles.serviceIconCircle,
-                  { backgroundColor: TealColors.primary },
-                ]}
-              >
-                <IconSymbol size={28} name="bell" color="#fff" />
-              </View>
-              <ThemedText style={styles.serviceCardText}>Alerts</ThemedText>
-            </Pressable>
-
-            <Pressable style={styles.serviceIconOnly} onPress={() => router.push("/me")}>
-              <View
-                style={[
-                  styles.serviceIconCircle,
-                  { backgroundColor: "#9B59B6" },
-                ]}
-              >
-                <IconSymbol size={28} name="person" color="#fff" />
-              </View>
-              <ThemedText style={styles.serviceCardText}>Me</ThemedText>
-            </Pressable>
-          </View>
-        </View>
+        <View
+          style={[
+            styles.sectionSeparator,
+            { backgroundColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(17,24,39,0.08)" },
+          ]}
+        />
 
         {/* Central Command Section */}
         <View style={styles.centralCommandSection}>
@@ -723,6 +663,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 12,
     fontWeight: "700",
+  },
+  sectionSeparator: {
+    height: 1,
+    width: "100%",
+    marginBottom: 24,
+    borderRadius: 999,
   },
   snapshotSection: {
     marginBottom: 28,
