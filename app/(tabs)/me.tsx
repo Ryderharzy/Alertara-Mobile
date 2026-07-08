@@ -19,7 +19,7 @@ import { LanguageOption, usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
 import { useFocusEffect } from "@react-navigation/native";
-import { useGlobalSearchParams } from "expo-router";
+import { useGlobalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -35,7 +35,8 @@ import {
 
 export default function MeScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
-  const { userToken, signOut } = useAuth();
+  const router = useRouter();
+  const { userProfile, signOut } = useAuth();
   const { scrollTo } = useGlobalSearchParams<{ scrollTo?: string }>();
   const scrollTarget = Array.isArray(scrollTo) ? scrollTo[0] : scrollTo;
   const scrollRef = useRef<ScrollView>(null);
@@ -59,6 +60,10 @@ export default function MeScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [policyModalVisible, setPolicyModalVisible] = useState(false);
   const [policyType, setPolicyType] = useState<"privacy" | "terms">("privacy");
+  const isLoggedIn = Boolean(userProfile?.id);
+  const displayName = userProfile?.name ?? "Guest Mode";
+  const displayEmail = userProfile?.email ?? "No account connected";
+  const displayPhone = userProfile?.phone ?? "Phone not set";
 
   const languageLabels: Record<LanguageOption, string> = {
     en: t("language.english", "English"),
@@ -106,6 +111,14 @@ export default function MeScreen() {
         style: "destructive",
       },
     ]);
+  };
+
+  const handleRegister = () => {
+    router.push("/(auth)/signup");
+  };
+
+  const handleLogin = () => {
+    router.push("/(auth)/login");
   };
 
   const handleLanguageSelect = (value: string) => {
@@ -239,20 +252,65 @@ export default function MeScreen() {
             style={[
               styles.userAvatar,
               {
-                backgroundColor: TealColors.primary,
+              backgroundColor: TealColors.primary,
               },
             ]}
           >
-            <IconSymbol size={40} name="person" color="#fff" />
+            <IconSymbol
+              size={40}
+              name={isLoggedIn ? "person.fill" : "person"}
+              color="#fff"
+            />
           </View>
           <View style={styles.userTextContainer}>
-            <ThemedText style={styles.userName}>John Doe</ThemedText>
-            <ThemedText style={styles.userEmail}>
-              john.doe@example.com
+            <ThemedText style={styles.userName}>
+              {displayName}
             </ThemedText>
-            <ThemedText style={styles.userPhone}>+1 (555) 123-4567</ThemedText>
+            <ThemedText style={styles.userEmail}>
+              {isLoggedIn
+                ? displayEmail
+                : "Create an account to save your profile and preferences."}
+            </ThemedText>
+            <ThemedText style={styles.userPhone}>
+              {isLoggedIn ? displayPhone : "No account connected"}
+            </ThemedText>
           </View>
         </View>
+
+        {!isLoggedIn && (
+          <View style={styles.authPromptCard}>
+            <ThemedText style={styles.authPromptTitle}>Create or sign in</ThemedText>
+            <ThemedText style={styles.authPromptText}>
+              Register to manage your account, save details, and keep your profile synced.
+            </ThemedText>
+            <View style={styles.authActionRow}>
+              <Pressable style={styles.primaryAuthButton} onPress={handleRegister}>
+                <ThemedText style={styles.primaryAuthButtonText}>
+                  Register
+                </ThemedText>
+              </Pressable>
+              <Pressable style={styles.secondaryAuthButton} onPress={handleLogin}>
+                <ThemedText style={styles.secondaryAuthButtonText}>
+                  Log In
+                </ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {isLoggedIn && (
+          <View style={styles.authPromptCard}>
+            <ThemedText style={styles.authPromptTitle}>Account Details</ThemedText>
+            <ThemedText style={styles.authPromptText}>
+              Your account is linked and ready. Review your details below.
+            </ThemedText>
+            <Pressable style={styles.secondaryAuthButton} onPress={handleLogout}>
+              <ThemedText style={styles.secondaryAuthButtonText}>
+                Log Out
+              </ThemedText>
+            </Pressable>
+          </View>
+        )}
 
         {/* Account Settings */}
         <SettingsSection title="ACCOUNT SETTINGS">
@@ -269,7 +327,7 @@ export default function MeScreen() {
           <SettingsDivider />
           <SettingsMenuItem
             label="Email Address"
-            value="john.doe@example.com"
+            value={displayEmail}
             icon="mail"
             onPress={() =>
               Alert.alert(
@@ -281,7 +339,7 @@ export default function MeScreen() {
           <SettingsDivider />
           <SettingsMenuItem
             label="Phone Number"
-            value="+1 (555) 123-4567"
+            value={displayPhone}
             icon="phone"
             onPress={() =>
               Alert.alert(
@@ -408,7 +466,7 @@ export default function MeScreen() {
         </SettingsSection>
 
         {/* Security */}
-        {userToken && (
+        {isLoggedIn && (
           <SettingsSection title="SECURITY">
             <SettingsMenuItem
               label="Change Password"
@@ -460,18 +518,6 @@ export default function MeScreen() {
             }
           />
         </SettingsSection>
-
-        {/* Logout */}
-        {userToken && (
-          <SettingsSection title="">
-            <SettingsMenuItem
-              label="Logout"
-              icon="arrow.backward"
-              danger={true}
-              onPress={handleLogout}
-            />
-          </SettingsSection>
-        )}
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -719,6 +765,52 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 28,
     paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  authPromptCard: {
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 18,
+    backgroundColor: "rgba(58, 118, 117, 0.08)",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "rgba(58, 118, 117, 0.18)",
+  },
+  authPromptTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  authPromptText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#666",
+  },
+  authActionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  primaryAuthButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: TealColors.primary,
+  },
+  primaryAuthButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  secondaryAuthButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: TealColors.primary,
+  },
+  secondaryAuthButtonText: {
+    color: TealColors.primary,
+    fontWeight: "700",
   },
   userAvatar: {
     width: 70,
@@ -732,18 +824,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userName: {
-    fontSize: 20,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "800",
     marginBottom: 4,
   },
   userEmail: {
     fontSize: 14,
-    color: "#999",
+    color: "#777",
     marginBottom: 2,
   },
   userPhone: {
     fontSize: 14,
-    color: "#999",
+    color: "#777",
   },
   bottomSpacer: {
     height: 40,

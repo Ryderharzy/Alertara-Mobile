@@ -31,6 +31,7 @@ export default function SignupScreen() {
   const bgColor = isDarkMode ? DARK_BACKGROUND : LIGHT_BACKGROUND;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -38,7 +39,7 @@ export default function SignupScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSignUp = async () => {
-    if (!name || !email || !password || !confirmPassword) {
+    if (!name || !email || !phone || !password || !confirmPassword) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
@@ -48,19 +49,20 @@ export default function SignupScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters");
+    if (password.length < 8) {
+      Alert.alert("Error", "Password must be at least 8 characters");
       return;
     }
 
     try {
       setLoading(true);
-      await signUp(name, email, password);
+      await signUp(name, email, password, phone);
       router.replace("/(tabs)");
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again with different credentials";
       Alert.alert(
         "Sign Up Failed",
-        "Please try again with different credentials",
+        message,
       );
       console.error("Sign up error:", error);
     } finally {
@@ -169,6 +171,33 @@ export default function SignupScreen() {
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    editable={!loading}
+                  />
+              </View>
+            </View>
+
+              {/* Phone Input */}
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Phone Number
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    {
+                      borderColor: TealColors.primary,
+                      backgroundColor: `${TealColors.primary}05`,
+                    },
+                  ]}
+                >
+                  <Ionicons name="call-outline" size={20} color={colors.text} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    placeholder="Enter your phone number"
+                    placeholderTextColor={colors.icon}
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
                     editable={!loading}
                   />
                 </View>
