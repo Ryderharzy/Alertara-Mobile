@@ -20,10 +20,9 @@ import {
   StyleSheet,
   TextInput,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 const SEARCH_PANEL_HEIGHT = 180;
 
@@ -66,13 +65,17 @@ export function Header() {
   }, [isSearchOpen, slideAnim]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredTargets = normalizedQuery
-    ? searchTargets.filter((target) =>
-        [target.label, ...target.keywords].some((value) =>
-          value.toLowerCase().startsWith(normalizedQuery)
-        )
+  const filteredTargets = useMemo(() => {
+    if (!normalizedQuery) {
+      return [];
+    }
+
+    return searchTargets.filter((target) =>
+      [target.label, ...target.keywords].some((value) =>
+        value.toLowerCase().startsWith(normalizedQuery)
       )
-    : [];
+    );
+  }, [normalizedQuery]);
 
   const goToTarget = useCallback(
     (href: string) => {
