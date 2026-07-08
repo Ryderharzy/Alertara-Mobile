@@ -14,16 +14,36 @@ import {
 import { useTheme } from "@/context/theme-context";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { Animated, Pressable, StyleSheet, TextInput, View } from "react-native";
+import {
+  Animated,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useCallback, useRef, useState } from "react";
 
-const SEARCH_PANEL_HEIGHT = 62;
+const SEARCH_PANEL_HEIGHT = 180;
+
+const searchTargets = [
+  { label: "Dashboard", keywords: ["home", "dashboard", "overview"], href: "/(tabs)" },
+  { label: "Map", keywords: ["map", "safety map", "crime map"], href: "/(tabs)/map" },
+  { label: "Report", keywords: ["report", "incident", "submit"], href: "/(tabs)/report" },
+  { label: "Alerts", keywords: ["alerts", "notification", "news"], href: "/notification" },
+  { label: "Profile", keywords: ["profile", "account", "me"], href: "/(tabs)/me" },
+  { label: "Emergency Call", keywords: ["call", "emergency", "help"], href: "/(tabs)/call" },
+  { label: "Submit Tip", keywords: ["tip", "submit tip"], href: "/submit-tip" },
+  { label: "Settings", keywords: ["settings", "preferences"], href: "/(tabs)/settings" },
+];
 
 export function Header() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const searchInputRef = useRef<TextInput>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const slideAnim = useRef(new Animated.Value(0)).current;
 
   const ICON_COLOR = isDarkMode ? DARK_ICON : LIGHT_ICON;
@@ -44,6 +64,31 @@ export function Header() {
       }
     });
   }, [isSearchOpen, slideAnim]);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredTargets = normalizedQuery
+    ? searchTargets.filter((target) =>
+        [target.label, ...target.keywords].some((value) =>
+          value.toLowerCase().startsWith(normalizedQuery)
+        )
+      )
+    : [];
+
+  const goToTarget = useCallback(
+    (href: string) => {
+      setSearchQuery("");
+      setIsSearchOpen(false);
+      router.push(href as never);
+    },
+    [router]
+  );
+
+  const handleSubmit = useCallback(() => {
+    const match = filteredTargets[0];
+    if (match) {
+      goToTarget(match.href);
+    }
+  }, [filteredTargets, goToTarget]);
 
   return (
     <View
@@ -107,6 +152,10 @@ export function Header() {
             ref={searchInputRef}
             placeholder="Search services..."
             placeholderTextColor={isDarkMode ? "#b0b0b0" : "#7f7f7f"}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            onSubmitEditing={handleSubmit}
             style={[
               styles.searchInput,
               { color: isDarkMode ? "#fff" : "#111" },
@@ -115,6 +164,66 @@ export function Header() {
           <Pressable onPress={toggleSearch} style={styles.closeButton}>
             <IconSymbol size={18} name="xmark" color={ICON_COLOR} />
           </Pressable>
+        </View>
+
+        <View
+          style={[
+            styles.suggestionsPanel,
+            {
+              backgroundColor: INPUT_BG,
+              borderColor: BORDER_COLOR,
+            },
+          ]}
+        >
+          {normalizedQuery.length === 0 ? (
+            <ThemedText style={styles.suggestionsHint}>
+              Type to see matching results
+            </ThemedText>
+          ) : filteredTargets.length > 0 ? (
+            filteredTargets.map((target) => {
+              const labelMatch = target.label
+                .toLowerCase()
+                .startsWith(normalizedQuery);
+              const typedLength = searchQuery.trim().length;
+              const highlight = labelMatch
+                ? target.label.slice(0, typedLength)
+                : target.label;
+              const remainder = labelMatch
+                ? target.label.slice(typedLength)
+                : "";
+
+              return (
+                <Pressable
+                  key={target.href}
+                  onPress={() => goToTarget(target.href)}
+                  style={({ pressed }) => [
+                    styles.suggestionRow,
+                    {
+                      backgroundColor: pressed
+                        ? isDarkMode
+                          ? "#1f2d31"
+                          : "#eef2f7"
+                        : "transparent",
+                    },
+                  ]}
+                >
+                  <IconSymbol
+                    size={16}
+                    name="magnifyingglass"
+                    color={ICON_COLOR}
+                  />
+                  <ThemedText style={styles.suggestionText}>
+                    <Text style={styles.suggestionMatch}>{highlight}</Text>
+                    {remainder}
+                  </ThemedText>
+                </Pressable>
+              );
+            })
+          ) : (
+            <ThemedText style={styles.suggestionsHint}>
+              No match found
+            </ThemedText>
+          )}
         </View>
       </Animated.View>
     </View>
@@ -173,6 +282,36 @@ const styles = StyleSheet.create({
     marginTop: 30,
     zIndex: 10,
     overflow: "hidden",
+  },
+  suggestionsPanel: {
+    borderTopWidth: 1,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    gap: 6,
+  },
+  suggestionsHint: {
+    fontSize: 13,
+    color: "#7f7f7f",
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  suggestionText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#111",
+  },
+  suggestionMatch: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TealColors.primary,
   },
   searchContent: {
     flexDirection: "row",
