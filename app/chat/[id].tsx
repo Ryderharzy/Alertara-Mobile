@@ -165,105 +165,106 @@ export default function ChatScreen() {
 
   return (
     <ThemedView style={[styles.container, { backgroundColor: screenBg }]}>
-      <SafeAreaView>
-        <View style={styles.hero}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <IconSymbol name="arrow.left" size={18} color="#ffffff" />
-        </Pressable>
-        <View style={styles.avatar}>
-          <MaterialCommunityIcons name="robot" size={26} color="#0f172a" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <ThemedText style={styles.heroTitle} numberOfLines={1}>
-            {alertTitle}
-          </ThemedText>
-          <ThemedText style={styles.heroSubtitle} numberOfLines={1}>
-            {(category ? decodeURIComponent(category) : "General") + " · AI Assistant"}
-          </ThemedText>
-        </View>
-        <Pressable onPress={handleReset} style={styles.resetBtn} accessibilityLabel="Reset chat history">
-          <IconSymbol name="arrow.counterclockwise" size={18} color="#e0f2f1" />
-        </Pressable>
-      </View>
-      </SafeAreaView>
-
-      <View style={[styles.threadCard, { backgroundColor: cardBg }]}>
-        <ScrollView ref={scrollRef} contentContainerStyle={styles.threadContent}>
-          {messages.map((m) => (
-            <View
-              key={m.id}
-              style={[
-                styles.bubble,
-                m.from === "user"
-                  ? [styles.userBubble, { backgroundColor: bubbleUser }]
-                  : [styles.botBubble, { backgroundColor: bubbleBot }]
-              ]}
-            >
-              <ThemedText
-                style={[
-                  styles.bubbleText,
-                  { color: m.from === "user" ? "#ffffff" : textColor },
-                ]}
-              >
-                {m.text}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={styles.hero}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+              <IconSymbol name="arrow.left" size={18} color="#ffffff" />
+            </Pressable>
+            <View style={styles.avatar}>
+              <MaterialCommunityIcons name="robot" size={26} color="#0f172a" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <ThemedText style={styles.heroTitle} numberOfLines={1}>
+                {alertTitle}
+              </ThemedText>
+              <ThemedText style={styles.heroSubtitle} numberOfLines={1}>
+                {(category ? decodeURIComponent(category) : "General") + " · AI Assistant"}
               </ThemedText>
             </View>
-          ))}
-        </ScrollView>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.promptsScroller}
-        contentContainerStyle={styles.promptsRow}
-      >
-        {promptChips.map((chip) => (
-          <Pressable
-            key={chip}
-            style={({ pressed }) => [
-              styles.chip,
-              {
-                backgroundColor: pressed ? `${TealColors.primary}1A` : `${TealColors.primary}10`,
-                borderColor: `${TealColors.primary}40`,
-              },
-            ]}
-            onPress={() => send(chip)}
-          >
-            <ThemedText style={styles.chipText}>{chip}</ThemedText>
-          </Pressable>
-        ))}
-      </ScrollView>
-
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
-      >
-        <View style={[styles.composer, { backgroundColor: cardBg }]}>
-          <TextInput
-            value={input}
-            onChangeText={setInput}
-            placeholder="Ask a question..."
-            placeholderTextColor="#6b7280"
-            style={[styles.input, { color: textColor }]}
-            multiline
-          />
-          <View style={styles.composerIcons}>
-            <Ionicons name="attach" size={18} color="#6b7280" />
-            <Ionicons name="camera" size={18} color="#6b7280" />
-            <Ionicons name="mic" size={18} color="#6b7280" />
+            <Pressable onPress={handleReset} style={styles.resetBtn} accessibilityLabel="Reset chat history">
+              <IconSymbol name="arrow.counterclockwise" size={18} color="#e0f2f1" />
+            </Pressable>
           </View>
-          <Pressable
-            style={[
-              styles.sendBtn,
-              { opacity: input.trim().length ? 1 : 0.4, borderColor: TealColors.primary },
-            ]}
-            disabled={!input.trim().length}
-            onPress={() => send(input)}
+
+          <View style={[styles.threadCard, { backgroundColor: cardBg }]}>
+            <ScrollView ref={scrollRef} contentContainerStyle={styles.threadContent}>
+              {messages.map((m) => (
+                <View
+                  key={m.id}
+                  style={[
+                    styles.bubble,
+                    m.from === "user"
+                      ? [styles.userBubble, { backgroundColor: bubbleUser }]
+                      : [styles.botBubble, { backgroundColor: bubbleBot }]
+                  ]}
+                >
+                  <ThemedText
+                    style={[
+                      styles.bubbleText,
+                      { color: m.from === "user" ? "#ffffff" : textColor },
+                    ]}
+                  >
+                    {m.text}
+                  </ThemedText>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.promptsScroller}
+            contentContainerStyle={styles.promptsRow}
           >
-            <IconSymbol name="paperplane.fill" size={18} color={TealColors.primary} />
-          </Pressable>
-        </View>
+            {promptChips.map((chip) => (
+              <Pressable
+                key={chip}
+                style={({ pressed }) => [
+                  styles.chip,
+                  {
+                    backgroundColor: pressed ? `${TealColors.primary}1A` : `${TealColors.primary}10`,
+                    borderColor: `${TealColors.primary}40`,
+                  },
+                ]}
+                onPress={() => send(chip)}
+              >
+                <ThemedText style={styles.chipText}>{chip}</ThemedText>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={[styles.composer, { backgroundColor: cardBg }]}>
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder="Ask a question..."
+              placeholderTextColor="#6b7280"
+              style={[styles.input, { color: textColor }]}
+              multiline
+            />
+            <View style={styles.composerIcons}>
+              <Ionicons name="attach" size={18} color="#6b7280" />
+              <Ionicons name="camera" size={18} color="#6b7280" />
+              <Ionicons name="mic" size={18} color="#6b7280" />
+            </View>
+            <Pressable
+              style={[
+                styles.sendBtn,
+                { opacity: input.trim().length ? 1 : 0.4, borderColor: TealColors.primary },
+              ]}
+              disabled={!input.trim().length}
+              onPress={() => send(input)}
+            >
+              <IconSymbol name="paperplane.fill" size={18} color={TealColors.primary} />
+            </Pressable>
+          </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </ThemedView>
   );
