@@ -1257,8 +1257,7 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   headerBar: {
-    width: "100%",
-    marginHorizontal: 1,
+    marginHorizontal: -16,
     marginTop: 24,
     marginBottom: 12,
     paddingHorizontal: 16,
