@@ -22,7 +22,10 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   InteractionManager,
   Modal,
   Pressable,
@@ -60,6 +63,9 @@ export default function MeScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [policyModalVisible, setPolicyModalVisible] = useState(false);
   const [policyType, setPolicyType] = useState<"privacy" | "terms">("privacy");
+  const [logoutSuccessVisible, setLogoutSuccessVisible] = useState(false);
+  const logoutScale = useRef(new Animated.Value(0.7)).current;
+  const logoutOpacity = useRef(new Animated.Value(0)).current;
   const isLoggedIn = Boolean(userProfile?.id);
   const displayName = userProfile?.name ?? "Guest Mode";
   const displayEmail = userProfile?.email ?? "No account connected";
@@ -104,6 +110,26 @@ export default function MeScreen() {
         onPress: async () => {
           try {
             await signOut();
+            setLogoutSuccessVisible(true);
+            Animated.parallel([
+              Animated.timing(logoutOpacity, {
+                toValue: 1,
+                duration: 180,
+                easing: Easing.out(Easing.quad),
+                useNativeDriver: true,
+              }),
+              Animated.spring(logoutScale, {
+                toValue: 1,
+                friction: 7,
+                tension: 70,
+                useNativeDriver: true,
+              }),
+            ]).start();
+
+            setTimeout(() => {
+              setLogoutSuccessVisible(false);
+              router.replace("/(auth)/login");
+            }, 1200);
           } catch {
             Alert.alert("Error", "Failed to logout");
           }
@@ -747,6 +773,31 @@ export default function MeScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      {logoutSuccessVisible && (
+        <Animated.View
+          style={[styles.logoutOverlay, { opacity: logoutOpacity }]}
+        >
+          <Animated.View
+            style={[
+              styles.logoutCard,
+              { transform: [{ scale: logoutScale }] },
+            ]}
+          >
+            <View style={styles.logoutIconCircle}>
+              <IconSymbol size={30} name="checkmark" color="#fff" />
+            </View>
+            <ThemedText style={styles.logoutTitle}>Logout complete</ThemedText>
+            <ThemedText style={styles.logoutSubtitle}>
+              You have been signed out successfully.
+            </ThemedText>
+            <ActivityIndicator
+              color={TealColors.primary}
+              style={{ marginTop: 12 }}
+            />
+          </Animated.View>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -921,5 +972,39 @@ const styles = StyleSheet.create({
   policySubheading: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  logoutOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  logoutCard: {
+    width: "78%",
+    maxWidth: 320,
+    borderRadius: 22,
+    paddingVertical: 24,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  logoutIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: TealColors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  logoutTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1d1d1d",
+  },
+  logoutSubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    color: "#666",
   },
 });

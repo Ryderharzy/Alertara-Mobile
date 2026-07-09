@@ -82,6 +82,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return signedInUser;
       } catch (error) {
         console.error('Login failed:', error);
+        if (error instanceof Error && error.message) {
+          throw new Error(error.message);
+        }
         if (axios.isAxiosError(error) && error.response?.status === 422) {
           const data = error.response.data as {
             message?: string;
@@ -111,6 +114,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return createdUser;
       } catch (error) {
         console.error('Signup failed:', error);
+        if (error instanceof Error && error.message) {
+          throw new Error(error.message);
+        }
         if (axios.isAxiosError(error) && error.response?.status === 422) {
           const data = error.response.data as {
             message?: string;
@@ -125,14 +131,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     },
     activateSession: async (user: UserProfile) => {
-      const token = `user_${user.id}`;
-      setUserToken(token);
       setUserProfile(user);
-      await AsyncStorage.setItem('userToken', token);
       await AsyncStorage.setItem('userProfile', JSON.stringify(user));
     },
     signOut: async () => {
       try {
+        try {
+          await apiClient.post('/logout');
+        } catch (logoutError) {
+          console.warn(
+            'Logout API call failed, continuing local sign-out:',
+            logoutError
+          );
+        }
+
         setUserToken(null);
         setUserProfile(null);
         await AsyncStorage.removeItem('userToken');

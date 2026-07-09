@@ -49,7 +49,6 @@ export default function LoginScreen() {
     try {
       setLoading(true);
       const user = await signIn(email, password);
-      setLoading(false);
       setPendingUser(user);
       setSuccessVisible(true);
     } catch (error) {
@@ -83,7 +82,9 @@ export default function LoginScreen() {
       setSuccessVisible(false);
       if (pendingUser) {
         activateSession(pendingUser);
+        router.replace("/(tabs)");
       }
+      setPendingUser(null);
     }, 1200);
 
     return () => clearTimeout(timeout);

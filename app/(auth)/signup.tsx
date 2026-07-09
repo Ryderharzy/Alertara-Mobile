@@ -64,7 +64,6 @@ export default function SignupScreen() {
     try {
       setLoading(true);
       const user = await signUp(name, email, password, phone);
-      setLoading(false);
       setPendingUser(user);
       setSuccessVisible(true);
     } catch (error) {
@@ -101,7 +100,9 @@ export default function SignupScreen() {
       setSuccessVisible(false);
       if (pendingUser) {
         activateSession(pendingUser);
+        router.replace("/(tabs)");
       }
+      setPendingUser(null);
     }, 1200);
 
     return () => clearTimeout(timeout);
@@ -376,8 +377,8 @@ export default function SignupScreen() {
             <View style={styles.successIconCircle}>
               <Ionicons name="checkmark" size={34} color="#fff" />
             </View>
-            <Text style={styles.successTitle}>Account created</Text>
-            <Text style={styles.successSubtitle}>Verification successful</Text>
+            <Text style={styles.successTitle}>Registration complete</Text>
+            <Text style={styles.successSubtitle}>Account verified successfully</Text>
             <ActivityIndicator color={TealColors.primary} style={{ marginTop: 12 }} />
           </Animated.View>
         </Animated.View>

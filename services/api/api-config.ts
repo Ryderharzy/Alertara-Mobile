@@ -38,19 +38,29 @@ apiClient.interceptors.response.use(
     }
 
     // Handle API errors
+    const apiMessage = (() => {
+      const data = error.response?.data as { message?: string } | string | undefined;
+      if (typeof data === 'string') {
+        return data;
+      }
+      return data?.message;
+    })();
+
     if (error.response.status >= 500) {
       console.error('Server error:', error.response.status);
-      return Promise.reject(new Error('Server error. Please try again later.'));
+      return Promise.reject(
+        new Error(apiMessage ?? 'Server error. Please try again later.')
+      );
     }
 
     if (error.response.status === 404) {
       console.error('Resource not found');
-      return Promise.reject(new Error('Resource not found.'));
+      return Promise.reject(new Error(apiMessage ?? 'Resource not found.'));
     }
 
     if (error.response.status === 403 || error.response.status === 401) {
       console.error('Access denied');
-      return Promise.reject(new Error('Access denied.'));
+      return Promise.reject(new Error(apiMessage ?? 'Access denied.'));
     }
 
     return Promise.reject(error);
