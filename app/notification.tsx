@@ -756,7 +756,7 @@ export default function NotificationScreen() {
           <View
             style={[
               styles.headerBar,
-              { backgroundColor: isDarkMode ? "#132428" : "#e8f1ec" },
+              { backgroundColor: isDarkMode ? "#132428" : TealColors.primary },
             ]}
           >
             <View style={styles.headerRow}>
@@ -782,7 +782,7 @@ export default function NotificationScreen() {
               </Pressable>
               <ThemedText
                 type="title"
-                style={[styles.headerTitle, { color: textColor }]}
+                style={[styles.headerTitle, { color: "#ffffff" }]}
               >
                 Notifications
               </ThemedText>
