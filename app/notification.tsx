@@ -2,8 +2,13 @@
 import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  NOTIFICATION_ACK_STORAGE_KEY,
+  NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
+} from "@/data/notification-center";
+import { apiClient } from "@/services/api/api-config";
 import { FontAwesome, MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,11 +23,6 @@ import {
   UIManager,
   View,
 } from "react-native";
-import {
-  NOTIFICATION_ACK_STORAGE_KEY,
-  NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
-} from "@/data/notification-center";
-import { apiClient } from "@/services/api/api-config";
 
 if (
   Platform.OS === "android" &&
@@ -110,15 +110,17 @@ function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
   const normalizedTitle = alert.title.toLowerCase();
   const normalizedSource = (alert.source ?? "").toLowerCase();
   const icon =
-    Object.entries(categoryIconMap).find(([key]) =>
-      normalizedCategory.includes(key) ||
-      normalizedTitle.includes(key) ||
-      normalizedSource.includes(key)
+    Object.entries(categoryIconMap).find(
+      ([key]) =>
+        normalizedCategory.includes(key) ||
+        normalizedTitle.includes(key) ||
+        normalizedSource.includes(key),
     )?.[1] ?? "bell";
 
   const severityKey = (alert.severity ?? "low").toLowerCase();
   const severity = severityMap[severityKey] ?? "LOW";
-  const body = alert.content?.trim() || alert.message?.trim() || "No details available.";
+  const body =
+    alert.content?.trim() || alert.message?.trim() || "No details available.";
   const area = alert.area?.trim();
 
   return {
@@ -129,9 +131,7 @@ function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
     type: alert.category?.trim() || "Alert",
     alertType: `${alert.category?.trim() || "Alert"} Notice`,
     severity,
-    timestamp: alert.created_at
-      ? new Date(alert.created_at).toLocaleString()
-      : "Recently",
+    timestamp: alert.created_at || new Date().toISOString(),
     description: area ? `${body} Area: ${area}` : body,
     actions: alert.message?.trim() ? [alert.message.trim()] : [body],
     source: alert.source?.trim() || "Alertara",
@@ -188,8 +188,9 @@ function buildAlertSearchText(alert: NotificationItem) {
 function getCategoryIcon(category: string) {
   const normalized = category.toLowerCase();
   return (
-    Object.entries(categoryIconMap).find(([key]) => normalized.includes(key))?.[1] ??
-    "bell"
+    Object.entries(categoryIconMap).find(([key]) =>
+      normalized.includes(key),
+    )?.[1] ?? "bell"
   );
 }
 
@@ -385,7 +386,9 @@ const NotificationCard = ({
           styles.primaryButton,
           {
             borderColor: acknowledged ? "#16a34a" : severityColor,
-            backgroundColor: acknowledged ? "rgba(22,163,74,0.10)" : "transparent",
+            backgroundColor: acknowledged
+              ? "rgba(22,163,74,0.10)"
+              : "transparent",
           },
         ]}
         onPress={() => onAcknowledge(alert.id)}
@@ -414,7 +417,6 @@ const NotificationCard = ({
           </ThemedText>
         </View>
       )}
-
     </Pressable>
   );
 };
@@ -444,7 +446,7 @@ export default function NotificationScreen() {
   const [localNewsError, setLocalNewsError] = useState("");
   const [acknowledgedIds, setAcknowledgedIds] = useState<string[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<NotificationItem | null>(
-    null
+    null,
   );
   const [citizenResponses, setCitizenResponses] = useState<
     Record<string, CitizenStatus>
@@ -463,7 +465,7 @@ export default function NotificationScreen() {
   });
   const allNotifications = useMemo(
     () => [...backendAlerts, ...localNewsItems],
-    [backendAlerts, localNewsItems]
+    [backendAlerts, localNewsItems],
   );
   const categoryTabs = useMemo(() => {
     const categories = new Map<string, IconSymbolName>();
@@ -490,7 +492,7 @@ export default function NotificationScreen() {
     }
 
     return backendAlerts.filter(
-      (alert) => (alert.category || "General") === selectedCategory
+      (alert) => (alert.category || "General") === selectedCategory,
     );
   }, [allNotifications, backendAlerts, localNewsItems, selectedCategory]);
 
@@ -502,7 +504,7 @@ export default function NotificationScreen() {
     }
 
     return selectedCategoryItems.filter((alert) =>
-      matchesAlertSearch(alert, normalizedSearch)
+      matchesAlertSearch(alert, normalizedSearch),
     );
   }, [searchQuery, selectedCategoryItems]);
 
@@ -514,14 +516,20 @@ export default function NotificationScreen() {
           : category.key === "Local News"
             ? localNewsItems
             : backendAlerts.filter(
-                (alert) => (alert.category || "General") === category.key
+                (alert) => (alert.category || "General") === category.key,
               );
       counts[category.key] = categoryItems.filter(
-        (alert) => !acknowledgedIds.includes(alert.id)
+        (alert) => !acknowledgedIds.includes(alert.id),
       ).length;
       return counts;
     }, {});
-  }, [acknowledgedIds, allNotifications, backendAlerts, categoryTabs, localNewsItems]);
+  }, [
+    acknowledgedIds,
+    allNotifications,
+    backendAlerts,
+    categoryTabs,
+    localNewsItems,
+  ]);
 
   useEffect(() => {
     if (filterVisible) {
@@ -584,7 +592,7 @@ export default function NotificationScreen() {
       } catch (error) {
         if (active) {
           setAlertsError(
-            error instanceof Error ? error.message : "Failed to load alerts."
+            error instanceof Error ? error.message : "Failed to load alerts.",
           );
         }
       } finally {
@@ -620,7 +628,7 @@ export default function NotificationScreen() {
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(
-            errorText || `GNews request failed (${response.status})`
+            errorText || `GNews request failed (${response.status})`,
           );
         }
 
@@ -653,12 +661,14 @@ export default function NotificationScreen() {
                 : "Source: GNews",
             ],
             source: article.source?.name || "GNews",
-          }))
+          })),
         );
       } catch (error) {
         if (active) {
           setLocalNewsError(
-            error instanceof Error ? error.message : "Failed to load local news."
+            error instanceof Error
+              ? error.message
+              : "Failed to load local news.",
           );
         }
       } finally {
@@ -683,16 +693,11 @@ export default function NotificationScreen() {
 
   const handleAcknowledge = (alertId: string) => {
     setAcknowledgedIds((current) =>
-      current.includes(alertId)
-        ? current
-        : [...current, alertId]
+      current.includes(alertId) ? current : [...current, alertId],
     );
   };
 
-  const handleSetResponseStatus = (
-    alertId: string,
-    status: CitizenStatus
-  ) => {
+  const handleSetResponseStatus = (alertId: string, status: CitizenStatus) => {
     setCitizenResponses((current) => ({
       ...current,
       [alertId]: status,
@@ -726,18 +731,18 @@ export default function NotificationScreen() {
   useEffect(() => {
     void AsyncStorage.setItem(
       NOTIFICATION_ACK_STORAGE_KEY,
-      JSON.stringify(acknowledgedIds)
+      JSON.stringify(acknowledgedIds),
     );
   }, [acknowledgedIds]);
 
   useEffect(() => {
     const unreadCount = allNotifications.filter(
-      (alert) => !acknowledgedIds.includes(alert.id)
+      (alert) => !acknowledgedIds.includes(alert.id),
     ).length;
 
     void AsyncStorage.setItem(
       NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
-      String(unreadCount)
+      String(unreadCount),
     );
   }, [acknowledgedIds, allNotifications]);
 
@@ -761,70 +766,70 @@ export default function NotificationScreen() {
           >
             <View style={styles.headerRow}>
               <View style={styles.headerLeft}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.backButton,
-                  {
-                    backgroundColor: pressed
-                      ? "#d9e5e1"
-                      : isDarkMode
-                        ? "#1f2d31"
-                        : "#ffffff",
-                  },
-                ]}
-                onPress={() => router.back()}
-              >
-                <IconSymbol
-                  name="arrow.left"
-                  size={18}
-                  color={highlightColor}
-                />
-              </Pressable>
-              <ThemedText
-                type="title"
-                style={[styles.headerTitle, { color: "#ffffff" }]}
-              >
-                Notifications
-              </ThemedText>
-            </View>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.backButton,
+                    {
+                      backgroundColor: pressed
+                        ? "#d9e5e1"
+                        : isDarkMode
+                          ? "#1f2d31"
+                          : "#ffffff",
+                    },
+                  ]}
+                  onPress={() => router.back()}
+                >
+                  <IconSymbol
+                    name="arrow.left"
+                    size={18}
+                    color={highlightColor}
+                  />
+                </Pressable>
+                <ThemedText
+                  type="title"
+                  style={[styles.headerTitle, { color: "#ffffff" }]}
+                >
+                  Notifications
+                </ThemedText>
+              </View>
               <View style={styles.headerActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.iconButton,
-                  {
-                    backgroundColor: pressed
-                      ? "#d9e5e1"
-                      : isDarkMode
-                        ? "#1f2d31"
-                        : "#ffffff",
-                  },
-                ]}
-                onPress={() => {
-                  setFilterVisible(false);
-                  setSearchVisible((prev) => !prev);
-                }}
-              >
-                <IconSymbol name="search" size={20} color={highlightColor} />
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.iconButton,
-                  styles.iconSpacing,
-                  {
-                    backgroundColor: pressed
-                      ? "#d9e5e1"
-                      : isDarkMode
-                        ? "#1f2d31"
-                        : "#ffffff",
-                  },
-                ]}
-                onPress={() => {
-                  setSearchVisible(false);
-                  setFilterVisible((prev) => !prev);
-                }}
-              >
-                <FontAwesome name="filter" size={20} color={highlightColor} />
-              </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    {
+                      backgroundColor: pressed
+                        ? "#d9e5e1"
+                        : isDarkMode
+                          ? "#1f2d31"
+                          : "#ffffff",
+                    },
+                  ]}
+                  onPress={() => {
+                    setFilterVisible(false);
+                    setSearchVisible((prev) => !prev);
+                  }}
+                >
+                  <IconSymbol name="search" size={20} color={highlightColor} />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    styles.iconSpacing,
+                    {
+                      backgroundColor: pressed
+                        ? "#d9e5e1"
+                        : isDarkMode
+                          ? "#1f2d31"
+                          : "#ffffff",
+                    },
+                  ]}
+                  onPress={() => {
+                    setSearchVisible(false);
+                    setFilterVisible((prev) => !prev);
+                  }}
+                >
+                  <FontAwesome name="filter" size={20} color={highlightColor} />
+                </Pressable>
               </View>
             </View>
           </View>
@@ -1018,13 +1023,15 @@ export default function NotificationScreen() {
             responseStatus={citizenResponses[alert.id] ?? null}
           />
         ))}
-        {!alertsLoading && !localNewsLoading && visibleNotifications.length === 0 && (
-          <View style={styles.statusCard}>
-            <ThemedText style={[styles.statusText, { color: textColor }]}>
-              No notifications found.
-            </ThemedText>
-          </View>
-        )}
+        {!alertsLoading &&
+          !localNewsLoading &&
+          visibleNotifications.length === 0 && (
+            <View style={styles.statusCard}>
+              <ThemedText style={[styles.statusText, { color: textColor }]}>
+                No notifications found.
+              </ThemedText>
+            </View>
+          )}
         {selectedCategory === "Local News" && localNewsLoading && (
           <View style={styles.statusCard}>
             <ThemedText style={[styles.statusText, { color: textColor }]}>
@@ -1061,182 +1068,242 @@ export default function NotificationScreen() {
               {
                 backgroundColor: cardBackground,
                 borderColor: isDarkMode ? "#334155" : "#d9e2ec",
+                maxHeight: "80%",
+                paddingTop: 32,
               },
             ]}
           >
-            <View style={styles.detailHeader}>
-              <View style={styles.detailHeaderText}>
-                <ThemedText style={[styles.detailCategory, { color: textColor }]}>
-                  {selectedAlert.category}
-                </ThemedText>
-                <ThemedText
-                  type="subtitle"
-                  style={[styles.detailTitle, { color: textColor }]}
+            <View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                backgroundColor: "#ffffff",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: 12,
+                borderTopLeftRadius: 18,
+                borderTopRightRadius: 18,
+                borderBottomWidth: 1,
+                borderBottomColor: "#e2e8f0",
+                zIndex: 10,
+              }}
+            >
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
+                <View
+                  style={[
+                    styles.detailSeverity,
+                    {
+                      borderColor: severityColors[selectedAlert.severity],
+                      backgroundColor: `${severityColors[selectedAlert.severity]}15`,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2,
+                    },
+                  ]}
                 >
-                  {selectedAlert.title}
+                  <ThemedText
+                    style={[
+                      styles.detailSeverityText,
+                      { color: severityColors[selectedAlert.severity] },
+                    ]}
+                  >
+                    {selectedAlert.severity}
+                  </ThemedText>
+                </View>
+                <ThemedText
+                  style={[styles.detailMetaText, { color: "#475569" }]}
+                >
+                  {new Date(selectedAlert.timestamp).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                  })}
                 </ThemedText>
               </View>
               <Pressable onPress={() => setSelectedAlert(null)}>
-                <IconSymbol name="xmark" size={18} color={highlightColor} />
+                <IconSymbol name="xmark" size={24} color="#64748b" />
               </Pressable>
             </View>
 
-            <View style={styles.detailMetaRow}>
-              <View
-                style={[
-                  styles.detailSeverity,
-                  {
-                    borderColor: severityColors[selectedAlert.severity],
-                    backgroundColor: `${severityColors[selectedAlert.severity]}15`,
-                  },
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.detailSeverityText,
-                    { color: severityColors[selectedAlert.severity] },
-                  ]}
-                >
-                  {selectedAlert.severity}
-                </ThemedText>
-              </View>
-              <ThemedText style={[styles.detailMetaText, { color: textColor }]}>
-                {selectedAlert.timestamp}
-              </ThemedText>
-            </View>
-
-            <ThemedText style={[styles.detailType, { color: textColor }]}>
-              {selectedAlert.alertType}
-            </ThemedText>
-
-            <ThemedText style={[styles.detailDescription, { color: textColor }]}>
-              {selectedAlert.description}
-            </ThemedText>
-
-            <View style={styles.detailSection}>
-              <ThemedText style={[styles.detailSectionTitle, { color: textColor }]}>
-                Action steps
-              </ThemedText>
-              {selectedAlert.actions.map((action) => (
-                <View key={action} style={styles.detailActionRow}>
-                  <View
-                    style={[styles.detailBullet, { backgroundColor: highlightColor }]}
-                  />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingTop: 30 }}
+            >
+              <View style={styles.detailHeader}>
+                <View style={styles.detailHeaderText}>
                   <ThemedText
-                    style={[styles.detailActionText, { color: textColor }]}
+                    style={[styles.detailCategory, { color: textColor }]}
                   >
-                    {action}
+                    {selectedAlert.category}
+                  </ThemedText>
+                  <ThemedText
+                    type="subtitle"
+                    style={[styles.detailTitle, { color: textColor }]}
+                  >
+                    {selectedAlert.title}
                   </ThemedText>
                 </View>
-              ))}
-            </View>
-
-            <View style={styles.detailFooter}>
-              <ThemedText style={[styles.detailSource, { color: textColor }]}>
-                Source: {selectedAlert.source}
-              </ThemedText>
-              <Pressable
-                style={[styles.detailChatButton, { borderColor: highlightColor }]}
-                onPress={() => {
-                  const alert = selectedAlert;
-                  setSelectedAlert(null);
-                  router.push({
-                    pathname: "/chat/[id]",
-                    params: {
-                      id: alert.id,
-                      title: alert.title,
-                      category: alert.category,
-                    },
-                  } as never);
-                }}
-              >
-                <ThemedText
-                  style={[styles.detailChatButtonText, { color: highlightColor }]}
-                >
-                  Open chat
-                </ThemedText>
-              </Pressable>
-            </View>
-
-            <View style={styles.responseSection}>
-              <ThemedText style={[styles.detailSectionTitle, { color: textColor }]}>
-                Share your status
-              </ThemedText>
-              <View style={styles.responseChips}>
-                {[
-                  { key: "safe", label: "Safe" },
-                  { key: "need-help", label: "Need Help" },
-                  { key: "evacuated", label: "Evacuated" },
-                  { key: "not-affected", label: "Not Affected" },
-                ].map((item) => {
-                  const isActive =
-                    citizenResponses[selectedAlert.id] === item.key;
-                  return (
-                    <Pressable
-                      key={item.key}
-                      style={({ pressed }) => [
-                        styles.responseChip,
-                        {
-                          borderColor: isActive
-                            ? highlightColor
-                            : isDarkMode
-                              ? "#334155"
-                              : "#cbd5e1",
-                          backgroundColor: isActive
-                            ? `${highlightColor}18`
-                            : pressed
-                              ? isDarkMode
-                                ? "#1f2933"
-                                : "#f1f5f9"
-                              : "transparent",
-                        },
-                      ]}
-                      onPress={() => setDraftStatus(item.key as CitizenStatus)}
-                    >
-                      <ThemedText
-                        style={[
-                          styles.responseChipText,
-                          { color: isActive ? highlightColor : textColor },
-                        ]}
-                      >
-                        {item.label}
-                      </ThemedText>
-                    </Pressable>
-                  );
-                })}
               </View>
 
-              <TextInput
-                value={responseDraft}
-                onChangeText={setResponseDraft}
-                placeholder="Optional message to authorities"
-                placeholderTextColor={isDarkMode ? "#94a3b8" : "#64748b"}
-                multiline
-                style={[
-                  styles.responseInput,
-                  {
-                    backgroundColor: isDarkMode ? "#1f2933" : "#f8fafc",
-                    borderColor: isDarkMode ? "#334155" : "#cbd5e1",
-                    color: textColor,
-                  },
-                ]}
-              />
+              <ThemedText style={[styles.detailType, { color: textColor }]}>
+                {selectedAlert.alertType}
+              </ThemedText>
 
-              <Pressable
-                style={[styles.responseSendButton, { backgroundColor: highlightColor }]}
-                onPress={() => {
-                  if (!responseDraft.trim()) {
-                    return;
-                  }
-                  handleSetResponseStatus(selectedAlert.id, draftStatus);
-                  setResponseDraft("");
-                }}
+              <ThemedText
+                style={[styles.detailDescription, { color: textColor }]}
               >
-                <ThemedText style={styles.responseSendButtonText}>
-                  Send status
+                {selectedAlert.description}
+              </ThemedText>
+
+              <View style={styles.detailSection}>
+                <ThemedText
+                  style={[styles.detailSectionTitle, { color: textColor }]}
+                >
+                  Action steps
                 </ThemedText>
-              </Pressable>
-            </View>
+                {selectedAlert.actions.map((action) => (
+                  <View key={action} style={styles.detailActionRow}>
+                    <View
+                      style={[
+                        styles.detailBullet,
+                        { backgroundColor: highlightColor },
+                      ]}
+                    />
+                    <ThemedText
+                      style={[styles.detailActionText, { color: textColor }]}
+                    >
+                      {action}
+                    </ThemedText>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.detailFooter}>
+                <ThemedText style={[styles.detailSource, { color: textColor }]}>
+                  Source: {selectedAlert.source}
+                </ThemedText>
+                <Pressable
+                  style={[
+                    styles.detailChatButton,
+                    { borderColor: highlightColor },
+                  ]}
+                  onPress={() => {
+                    const alert = selectedAlert;
+                    setSelectedAlert(null);
+                    router.push({
+                      pathname: "/chat/[id]",
+                      params: {
+                        id: alert.id,
+                        title: alert.title,
+                        category: alert.category,
+                      },
+                    } as never);
+                  }}
+                >
+                  <ThemedText
+                    style={[
+                      styles.detailChatButtonText,
+                      { color: highlightColor },
+                    ]}
+                  >
+                    Open chat
+                  </ThemedText>
+                </Pressable>
+              </View>
+
+              <View style={styles.responseSection}>
+                <ThemedText
+                  style={[styles.detailSectionTitle, { color: textColor }]}
+                >
+                  Share your status
+                </ThemedText>
+                <View style={styles.responseChips}>
+                  {[
+                    { key: "safe", label: "Safe" },
+                    { key: "need-help", label: "Need Help" },
+                    { key: "evacuated", label: "Evacuated" },
+                    { key: "not-affected", label: "Not Affected" },
+                  ].map((item) => {
+                    const isActive =
+                      citizenResponses[selectedAlert.id] === item.key;
+                    return (
+                      <Pressable
+                        key={item.key}
+                        style={({ pressed }) => [
+                          styles.responseChip,
+                          {
+                            borderColor: isActive
+                              ? highlightColor
+                              : isDarkMode
+                                ? "#334155"
+                                : "#cbd5e1",
+                            backgroundColor: isActive
+                              ? `${highlightColor}18`
+                              : pressed
+                                ? isDarkMode
+                                  ? "#1f2933"
+                                  : "#f1f5f9"
+                                : "transparent",
+                          },
+                        ]}
+                        onPress={() =>
+                          setDraftStatus(item.key as CitizenStatus)
+                        }
+                      >
+                        <ThemedText
+                          style={[
+                            styles.responseChipText,
+                            { color: isActive ? highlightColor : textColor },
+                          ]}
+                        >
+                          {item.label}
+                        </ThemedText>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <TextInput
+                  value={responseDraft}
+                  onChangeText={setResponseDraft}
+                  placeholder="Optional message to authorities"
+                  placeholderTextColor={isDarkMode ? "#94a3b8" : "#64748b"}
+                  multiline
+                  style={[
+                    styles.responseInput,
+                    {
+                      backgroundColor: isDarkMode ? "#1f2933" : "#f8fafc",
+                      borderColor: isDarkMode ? "#334155" : "#cbd5e1",
+                      color: textColor,
+                    },
+                  ]}
+                />
+
+                <Pressable
+                  style={[
+                    styles.responseSendButton,
+                    { backgroundColor: highlightColor },
+                  ]}
+                  onPress={() => {
+                    if (!responseDraft.trim()) {
+                      return;
+                    }
+                    handleSetResponseStatus(selectedAlert.id, draftStatus);
+                    setResponseDraft("");
+                  }}
+                >
+                  <ThemedText style={styles.responseSendButtonText}>
+                    Send status
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
         </View>
       )}
