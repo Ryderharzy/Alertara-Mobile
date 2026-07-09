@@ -2,9 +2,10 @@
 import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { FontAwesome, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -17,6 +18,10 @@ import {
   UIManager,
   View,
 } from "react-native";
+import {
+  NOTIFICATION_ACK_STORAGE_KEY,
+  NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
+} from "@/data/notification-center";
 
 if (
   Platform.OS === "android" &&
@@ -39,6 +44,14 @@ type NotificationItem = {
   source: string;
 };
 
+type CitizenStatus = "safe" | "need-help" | "evacuated" | "not-affected";
+
+type NotificationCategory = {
+  key: string;
+  icon: IconSymbolName;
+  items: NotificationItem[];
+};
+
 type GNewsArticle = {
   title?: string;
   description?: string;
@@ -50,8 +63,11 @@ type GNewsArticle = {
   };
 };
 
-const notificationsByCategory: Record<string, NotificationItem[]> = {
-  General: [
+const notificationCategories: NotificationCategory[] = [
+  {
+    key: "General",
+    icon: "info.circle",
+    items: [
     {
       id: "general-1",
       category: "General",
@@ -86,8 +102,12 @@ const notificationsByCategory: Record<string, NotificationItem[]> = {
       ],
       source: "Public Works",
     },
-  ],
-  Alert: [
+    ],
+  },
+  {
+    key: "Alert",
+    icon: "exclamationmark",
+    items: [
     {
       id: "earthquake",
       category: "Alert",
@@ -159,8 +179,12 @@ const notificationsByCategory: Record<string, NotificationItem[]> = {
       ],
       source: "Traffic Management",
     },
-  ],
-  Announcement: [
+    ],
+  },
+  {
+    key: "Announcement",
+    icon: "megaphone",
+    items: [
     {
       id: "announcement-1",
       category: "Announcement",
@@ -178,8 +202,12 @@ const notificationsByCategory: Record<string, NotificationItem[]> = {
       ],
       source: "Office of Civil Defense",
     },
-  ],
-  Reminder: [
+    ],
+  },
+  {
+    key: "Reminder",
+    icon: "clock",
+    items: [
     {
       id: "reminder-1",
       category: "Reminder",
@@ -197,8 +225,12 @@ const notificationsByCategory: Record<string, NotificationItem[]> = {
       ],
       source: "Barangay 12 Secretariat",
     },
-  ],
-  "Emergency Broadcast": [
+    ],
+  },
+  {
+    key: "Emergency Broadcast",
+    icon: "shield",
+    items: [
     {
       id: "emergency-1",
       category: "Emergency Broadcast",
@@ -217,8 +249,9 @@ const notificationsByCategory: Record<string, NotificationItem[]> = {
       ],
       source: "NDRRMC",
     },
-  ],
-};
+    ],
+  },
+];
 
 const severityColors: Record<string, string> = {
   HIGH: "#df4338",
@@ -227,12 +260,8 @@ const severityColors: Record<string, string> = {
 };
 
 const categoryTabs = [
-  { key: "General", icon: "info.circle" },
+  ...notificationCategories.map(({ key, icon }) => ({ key, icon })),
   { key: "Local News", icon: "newspaper" },
-  { key: "Alert", icon: "exclamationmark" },
-  { key: "Announcement", icon: "megaphone" },
-  { key: "Reminder", icon: "clock" },
-  { key: "Emergency Broadcast", icon: "shield" },
 ];
 const timeFilters = [
   "Now",
@@ -242,6 +271,75 @@ const timeFilters = [
   "A Year Ago",
 ];
 
+function getCategoryItems(categoryKey: string, localNewsItems: NotificationItem[]) {
+  if (categoryKey === "Local News") {
+    return localNewsItems;
+  }
+
+  return (
+    notificationCategories.find((category) => category.key === categoryKey)
+      ?.items ?? []
+  );
+}
+
+const searchAliases: Record<string, string[]> = {
+  typhoon: ["weather", "storm", "rain", "flood", "wind", "severe weather"],
+  hurricane: ["weather", "storm", "rain", "flood", "wind", "severe weather"],
+  storm: ["weather", "rain", "wind", "flood", "severe weather"],
+  flood: ["flood", "water", "rain", "weather", "evacuation"],
+  earthquake: ["earthquake", "quake", "seismic", "phivolcs"],
+  quake: ["earthquake", "quake", "seismic", "phivolcs"],
+  fire: ["fire", "smoke", "bfp", "burning"],
+  smoke: ["fire", "smoke", "bfp", "burning"],
+  accident: ["crash", "collision", "road", "traffic", "incident"],
+  crash: ["crash", "collision", "road", "traffic", "incident"],
+  collision: ["crash", "collision", "road", "traffic", "incident"],
+  alert: ["alert", "warning", "emergency", "broadcast"],
+  warning: ["alert", "warning", "emergency", "broadcast"],
+  news: ["news", "announcement", "general", "update"],
+  reminder: ["reminder", "task", "notice"],
+  general: ["general", "announcement", "update"],
+};
+
+function normalizeSearchValue(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function buildAlertSearchText(alert: NotificationItem) {
+  return [
+    alert.title,
+    alert.category,
+    alert.type,
+    alert.alertType,
+    alert.severity,
+    alert.timestamp,
+    alert.description,
+    alert.source,
+    ...alert.actions,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function matchesAlertSearch(alert: NotificationItem, query: string) {
+  const normalizedQuery = normalizeSearchValue(query);
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const haystack = buildAlertSearchText(alert);
+  const terms = normalizedQuery.split(" ").filter(Boolean);
+  const aliasTerms = new Set<string>();
+
+  terms.forEach((term) => {
+    aliasTerms.add(term);
+    (searchAliases[term] ?? []).forEach((alias) => aliasTerms.add(alias));
+  });
+
+  return Array.from(aliasTerms).some((term) => haystack.includes(term));
+}
+
 const NotificationCard = ({
   alert,
   cardBackground,
@@ -249,6 +347,10 @@ const NotificationCard = ({
   compactMode,
   isDarkMode,
   highlightColor,
+  acknowledged,
+  onAcknowledge,
+  onOpenDetails,
+  responseStatus,
 }: {
   alert: NotificationItem;
   cardBackground: string;
@@ -256,33 +358,13 @@ const NotificationCard = ({
   compactMode: boolean;
   isDarkMode: boolean;
   highlightColor: string;
+  acknowledged: boolean;
+  onAcknowledge: (alertId: string) => void;
+  onOpenDetails: (alert: NotificationItem) => void;
+  responseStatus: CitizenStatus | null;
 }) => {
   const router = useRouter();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [contentHeight, setContentHeight] = useState(0);
-  const expandAnim = useRef(new Animated.Value(0)).current;
   const severityColor = severityColors[alert.severity] ?? "#999";
-
-  const toggleExpand = () => {
-    const nextState = !isExpanded;
-    setIsExpanded(nextState);
-    Animated.timing(expandAnim, {
-      toValue: nextState ? 1 : 0,
-      duration: 300,
-      easing: Easing.inOut(Easing.ease),
-      useNativeDriver: false,
-    }).start();
-  };
-
-  const heightStyle = expandAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, contentHeight],
-  });
-
-  const opacityStyle = expandAnim.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0, 0, 1],
-  });
 
   if (compactMode) {
     return (
@@ -345,7 +427,7 @@ const NotificationCard = ({
   return (
     <Pressable
       style={[styles.card, { backgroundColor: cardBackground }]}
-      onPress={toggleExpand}
+      onPress={() => onOpenDetails(alert)}
     >
       <View style={styles.cardHeader}>
         <View style={styles.categoryRow}>
@@ -376,76 +458,17 @@ const NotificationCard = ({
         {alert.title}
       </ThemedText>
 
-      <ThemedText style={[styles.typeLabel, { color: textColor }]}>
-        {alert.alertType}
-      </ThemedText>
-
       <ThemedText
         style={[styles.description, { color: textColor }]}
-        numberOfLines={isExpanded ? undefined : 2}
+        numberOfLines={1}
       >
         {alert.description}
       </ThemedText>
 
-      <View
-        style={{ position: "absolute", opacity: 0, width: "100%", zIndex: -1 }}
-        pointerEvents="none"
-      >
-        <View
-          onLayout={(e) => setContentHeight(e.nativeEvent.layout.height)}
-          style={styles.expandedContent}
-        >
-          <View style={styles.actionsContainer}>
-            <ThemedText style={[styles.actionsLabel, { color: textColor }]}>
-              Action steps:
-            </ThemedText>
-            {alert.actions.map((action) => (
-              <View key={action} style={styles.actionRow}>
-                <View
-                  style={[styles.bullet, { backgroundColor: severityColor }]}
-                />
-                <ThemedText style={[styles.actionText, { color: textColor }]}>
-                  {action}
-                </ThemedText>
-              </View>
-            ))}
-          </View>
-        </View>
-      </View>
-
-      <Animated.View
-        style={{
-          height: contentHeight > 0 ? heightStyle : 0,
-          opacity: opacityStyle,
-          overflow: "hidden",
-        }}
-      >
-        <View style={styles.expandedContent}>
-          <View style={styles.actionsContainer}>
-            <ThemedText style={[styles.actionsLabel, { color: textColor }]}>
-              Action steps:
-            </ThemedText>
-            {alert.actions.map((action) => (
-              <View key={action} style={styles.actionRow}>
-                <View
-                  style={[styles.bullet, { backgroundColor: severityColor }]}
-                />
-                <ThemedText style={[styles.actionText, { color: textColor }]}>
-                  {action}
-                </ThemedText>
-              </View>
-            ))}
-          </View>
-        </View>
-      </Animated.View>
-
-      <View style={[styles.footerRow, { marginTop: 12 }]}>
+      <View style={[styles.footerRow, { marginTop: 8 }]}>
         <View style={{ flex: 1 }}>
           <ThemedText style={[styles.timestamp, { color: textColor }]}>
             Timestamp: {alert.timestamp}
-          </ThemedText>
-          <ThemedText style={[styles.source, { color: textColor }]}>
-            Source: {alert.source}
           </ThemedText>
         </View>
         <Pressable
@@ -485,17 +508,41 @@ const NotificationCard = ({
         </Pressable>
       </View>
 
-      <Pressable style={[styles.primaryButton, { borderColor: severityColor }]}>
-        <ThemedText style={[styles.buttonText, { color: severityColor }]}>
-          I received this alert
+      <Pressable
+        style={[
+          styles.primaryButton,
+          {
+            borderColor: acknowledged ? "#16a34a" : severityColor,
+            backgroundColor: acknowledged ? "rgba(22,163,74,0.10)" : "transparent",
+          },
+        ]}
+        onPress={() => onAcknowledge(alert.id)}
+      >
+        <ThemedText
+          style={[
+            styles.buttonText,
+            { color: acknowledged ? "#16a34a" : severityColor },
+          ]}
+        >
+          {acknowledged ? "Acknowledged" : "I received this alert"}
         </ThemedText>
       </Pressable>
 
-      <View style={styles.expandIconContainer}>
-        <ThemedText style={[{ color: "#999", fontSize: 12 }]}>
-          {isExpanded ? "Show less" : "Show more"}
-        </ThemedText>
-      </View>
+      {responseStatus && (
+        <View style={styles.responseBadge}>
+          <ThemedText style={styles.responseBadgeText}>
+            Status:{" "}
+            {responseStatus === "need-help"
+              ? "Need Help"
+              : responseStatus === "not-affected"
+                ? "Not Affected"
+                : responseStatus === "evacuated"
+                  ? "Evacuated"
+                  : "Safe"}
+          </ThemedText>
+        </View>
+      )}
+
     </Pressable>
   );
 };
@@ -520,6 +567,15 @@ export default function NotificationScreen() {
   const [localNewsItems, setLocalNewsItems] = useState<NotificationItem[]>([]);
   const [localNewsLoading, setLocalNewsLoading] = useState(false);
   const [localNewsError, setLocalNewsError] = useState("");
+  const [acknowledgedIds, setAcknowledgedIds] = useState<string[]>([]);
+  const [selectedAlert, setSelectedAlert] = useState<NotificationItem | null>(
+    null
+  );
+  const [citizenResponses, setCitizenResponses] = useState<
+    Record<string, CitizenStatus>
+  >({});
+  const [draftStatus, setDraftStatus] = useState<CitizenStatus>("safe");
+  const [responseDraft, setResponseDraft] = useState("");
   const searchAnim = useRef(new Animated.Value(0)).current;
   const translateX = slideAnim.interpolate({
     inputRange: [0, 1],
@@ -530,6 +586,31 @@ export default function NotificationScreen() {
     inputRange: [0, 1],
     outputRange: [-60, 0],
   });
+  const selectedCategoryItems = useMemo(() => {
+    return getCategoryItems(selectedCategory, localNewsItems);
+  }, [localNewsItems, selectedCategory]);
+
+  const visibleNotifications = useMemo(() => {
+    const normalizedSearch = normalizeSearchValue(searchQuery);
+
+    if (!normalizedSearch) {
+      return selectedCategoryItems;
+    }
+
+    return selectedCategoryItems.filter((alert) =>
+      matchesAlertSearch(alert, normalizedSearch)
+    );
+  }, [searchQuery, selectedCategoryItems]);
+
+  const categoryUnreadCounts = useMemo(() => {
+    return categoryTabs.reduce<Record<string, number>>((counts, category) => {
+      const categoryItems = getCategoryItems(category.key, localNewsItems);
+      counts[category.key] = categoryItems.filter(
+        (alert) => !acknowledgedIds.includes(alert.id)
+      ).length;
+      return counts;
+    }, {});
+  }, [acknowledgedIds, localNewsItems]);
 
   useEffect(() => {
     if (filterVisible) {
@@ -651,16 +732,72 @@ export default function NotificationScreen() {
     };
   }, [gnewsApiKey]);
 
-  const currentNotifications =
-    selectedCategory === "Local News"
-      ? localNewsItems
-      : notificationsByCategory[selectedCategory] ?? [];
-
   const handleGeneralChat = () =>
     router.push({
       pathname: "/chat/[id]",
       params: { id: "general", title: "General Support", category: "General" },
     } as never);
+
+  const handleAcknowledge = (alertId: string) => {
+    setAcknowledgedIds((current) =>
+      current.includes(alertId)
+        ? current
+        : [...current, alertId]
+    );
+  };
+
+  const handleSetResponseStatus = (
+    alertId: string,
+    status: CitizenStatus
+  ) => {
+    setCitizenResponses((current) => ({
+      ...current,
+      [alertId]: status,
+    }));
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(NOTIFICATION_ACK_STORAGE_KEY);
+        if (!active || !saved) {
+          return;
+        }
+
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setAcknowledgedIds(parsed.filter((item) => typeof item === "string"));
+        }
+      } catch {
+        // ignore load errors
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void AsyncStorage.setItem(
+      NOTIFICATION_ACK_STORAGE_KEY,
+      JSON.stringify(acknowledgedIds)
+    );
+  }, [acknowledgedIds]);
+
+  useEffect(() => {
+    const unreadCount = [
+      ...notificationCategories.flatMap((category) => category.items),
+      ...localNewsItems,
+    ].filter((alert) => !acknowledgedIds.includes(alert.id)).length;
+
+    void AsyncStorage.setItem(
+      NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
+      String(unreadCount)
+    );
+  }, [acknowledgedIds, localNewsItems]);
 
   return (
     <SafeAreaView
@@ -816,6 +953,13 @@ export default function NotificationScreen() {
                   >
                     {category.key}
                   </ThemedText>
+                  {categoryUnreadCounts[category.key] > 0 && (
+                    <View style={styles.tabBadge}>
+                      <ThemedText style={styles.tabBadgeText}>
+                        {categoryUnreadCounts[category.key]}
+                      </ThemedText>
+                    </View>
+                  )}
                 </View>
               </Pressable>
             ))}
@@ -894,7 +1038,7 @@ export default function NotificationScreen() {
           )}
         </View>
 
-        {currentNotifications.map((alert) => (
+        {visibleNotifications.map((alert) => (
           <NotificationCard
             key={alert.id}
             alert={alert}
@@ -903,6 +1047,10 @@ export default function NotificationScreen() {
             compactMode={compactMode}
             isDarkMode={isDarkMode}
             highlightColor={highlightColor}
+            acknowledged={acknowledgedIds.includes(alert.id)}
+            onAcknowledge={handleAcknowledge}
+            onOpenDetails={setSelectedAlert}
+            responseStatus={citizenResponses[alert.id] ?? null}
           />
         ))}
         {selectedCategory === "Local News" && localNewsLoading && (
@@ -928,6 +1076,198 @@ export default function NotificationScreen() {
       >
         <IconSymbol size={24} name="bubble.right" color="#fff" />
       </Pressable>
+
+      {selectedAlert && (
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setSelectedAlert(null)}
+          />
+          <View
+            style={[
+              styles.detailModal,
+              {
+                backgroundColor: cardBackground,
+                borderColor: isDarkMode ? "#334155" : "#d9e2ec",
+              },
+            ]}
+          >
+            <View style={styles.detailHeader}>
+              <View style={styles.detailHeaderText}>
+                <ThemedText style={[styles.detailCategory, { color: textColor }]}>
+                  {selectedAlert.category}
+                </ThemedText>
+                <ThemedText
+                  type="subtitle"
+                  style={[styles.detailTitle, { color: textColor }]}
+                >
+                  {selectedAlert.title}
+                </ThemedText>
+              </View>
+              <Pressable onPress={() => setSelectedAlert(null)}>
+                <IconSymbol name="xmark" size={18} color={highlightColor} />
+              </Pressable>
+            </View>
+
+            <View style={styles.detailMetaRow}>
+              <View
+                style={[
+                  styles.detailSeverity,
+                  {
+                    borderColor: severityColors[selectedAlert.severity],
+                    backgroundColor: `${severityColors[selectedAlert.severity]}15`,
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[
+                    styles.detailSeverityText,
+                    { color: severityColors[selectedAlert.severity] },
+                  ]}
+                >
+                  {selectedAlert.severity}
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.detailMetaText, { color: textColor }]}>
+                {selectedAlert.timestamp}
+              </ThemedText>
+            </View>
+
+            <ThemedText style={[styles.detailType, { color: textColor }]}>
+              {selectedAlert.alertType}
+            </ThemedText>
+
+            <ThemedText style={[styles.detailDescription, { color: textColor }]}>
+              {selectedAlert.description}
+            </ThemedText>
+
+            <View style={styles.detailSection}>
+              <ThemedText style={[styles.detailSectionTitle, { color: textColor }]}>
+                Action steps
+              </ThemedText>
+              {selectedAlert.actions.map((action) => (
+                <View key={action} style={styles.detailActionRow}>
+                  <View
+                    style={[styles.detailBullet, { backgroundColor: highlightColor }]}
+                  />
+                  <ThemedText
+                    style={[styles.detailActionText, { color: textColor }]}
+                  >
+                    {action}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.detailFooter}>
+              <ThemedText style={[styles.detailSource, { color: textColor }]}>
+                Source: {selectedAlert.source}
+              </ThemedText>
+              <Pressable
+                style={[styles.detailChatButton, { borderColor: highlightColor }]}
+                onPress={() => {
+                  const alert = selectedAlert;
+                  setSelectedAlert(null);
+                  router.push({
+                    pathname: "/chat/[id]",
+                    params: {
+                      id: alert.id,
+                      title: alert.title,
+                      category: alert.category,
+                    },
+                  } as never);
+                }}
+              >
+                <ThemedText
+                  style={[styles.detailChatButtonText, { color: highlightColor }]}
+                >
+                  Open chat
+                </ThemedText>
+              </Pressable>
+            </View>
+
+            <View style={styles.responseSection}>
+              <ThemedText style={[styles.detailSectionTitle, { color: textColor }]}>
+                Share your status
+              </ThemedText>
+              <View style={styles.responseChips}>
+                {[
+                  { key: "safe", label: "Safe" },
+                  { key: "need-help", label: "Need Help" },
+                  { key: "evacuated", label: "Evacuated" },
+                  { key: "not-affected", label: "Not Affected" },
+                ].map((item) => {
+                  const isActive =
+                    citizenResponses[selectedAlert.id] === item.key;
+                  return (
+                    <Pressable
+                      key={item.key}
+                      style={({ pressed }) => [
+                        styles.responseChip,
+                        {
+                          borderColor: isActive
+                            ? highlightColor
+                            : isDarkMode
+                              ? "#334155"
+                              : "#cbd5e1",
+                          backgroundColor: isActive
+                            ? `${highlightColor}18`
+                            : pressed
+                              ? isDarkMode
+                                ? "#1f2933"
+                                : "#f1f5f9"
+                              : "transparent",
+                        },
+                      ]}
+                      onPress={() => setDraftStatus(item.key as CitizenStatus)}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.responseChipText,
+                          { color: isActive ? highlightColor : textColor },
+                        ]}
+                      >
+                        {item.label}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                value={responseDraft}
+                onChangeText={setResponseDraft}
+                placeholder="Optional message to authorities"
+                placeholderTextColor={isDarkMode ? "#94a3b8" : "#64748b"}
+                multiline
+                style={[
+                  styles.responseInput,
+                  {
+                    backgroundColor: isDarkMode ? "#1f2933" : "#f8fafc",
+                    borderColor: isDarkMode ? "#334155" : "#cbd5e1",
+                    color: textColor,
+                  },
+                ]}
+              />
+
+              <Pressable
+                style={[styles.responseSendButton, { backgroundColor: highlightColor }]}
+                onPress={() => {
+                  if (!responseDraft.trim()) {
+                    return;
+                  }
+                  handleSetResponseStatus(selectedAlert.id, draftStatus);
+                  setResponseDraft("");
+                }}
+              >
+                <ThemedText style={styles.responseSendButtonText}>
+                  Send status
+                </ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1001,6 +1341,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  tabBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 12,
   },
   searchPanel: {
     position: "absolute",
@@ -1078,8 +1433,8 @@ const styles = StyleSheet.create({
     color: "#64748b",
   },
   card: {
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: "#e5e7eb",
     shadowColor: "#000",
@@ -1087,14 +1442,14 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
-    marginBottom: 16,
+    marginBottom: 12,
     overflow: "hidden",
   },
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   categoryRow: {
     flexDirection: "row",
@@ -1118,18 +1473,12 @@ const styles = StyleSheet.create({
   },
   titleText: {
     textTransform: "uppercase",
-    marginBottom: 6,
-  },
-  typeLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   description: {
-    lineHeight: 20,
-    marginBottom: 12,
-    fontSize: 14,
+    lineHeight: 18,
+    marginBottom: 8,
+    fontSize: 13,
   },
   actionsContainer: {
     marginBottom: 16,
@@ -1157,7 +1506,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   footerRow: {
-    marginBottom: 12,
+    marginBottom: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -1170,9 +1519,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
+  responseBadge: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(22,163,74,0.12)",
+  },
+  responseBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#16a34a",
+  },
   primaryButton: {
-    borderRadius: 28,
-    paddingVertical: 10,
+    borderRadius: 22,
+    paddingVertical: 8,
     alignItems: "center",
     borderWidth: 1,
   },
@@ -1181,7 +1543,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   smallChatbotButton: {
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: 10,
     borderRadius: 12,
     borderWidth: 1,
@@ -1192,6 +1554,148 @@ const styles = StyleSheet.create({
   smallChatbotLabel: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    padding: 16,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  detailModal: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    gap: 12,
+  },
+  detailHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  detailHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
+  detailCategory: {
+    fontSize: 12,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  detailTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 24,
+  },
+  detailMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  detailSeverity: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  detailSeverityText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  detailMetaText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  detailType: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  detailDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  detailSection: {
+    gap: 8,
+  },
+  detailSectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  detailActionRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "flex-start",
+  },
+  detailBullet: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    marginTop: 6,
+  },
+  detailActionText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  detailFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
+  detailSource: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  detailChatButton: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  detailChatButtonText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  responseSection: {
+    gap: 10,
+  },
+  responseChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  responseChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+  },
+  responseChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  responseInput: {
+    borderWidth: 1,
+    borderRadius: 14,
+    minHeight: 84,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    textAlignVertical: "top",
+  },
+  responseSendButton: {
+    borderRadius: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  responseSendButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "800",
   },
   compactCard: {
     flexDirection: "row",
