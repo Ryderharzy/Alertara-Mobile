@@ -22,6 +22,7 @@ import {
   NOTIFICATION_ACK_STORAGE_KEY,
   NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
 } from "@/data/notification-center";
+import { apiClient } from "@/services/api/api-config";
 
 if (
   Platform.OS === "android" &&
@@ -46,12 +47,6 @@ type NotificationItem = {
 
 type CitizenStatus = "safe" | "need-help" | "evacuated" | "not-affected";
 
-type NotificationCategory = {
-  key: string;
-  icon: IconSymbolName;
-  items: NotificationItem[];
-};
-
 type GNewsArticle = {
   title?: string;
   description?: string;
@@ -63,195 +58,24 @@ type GNewsArticle = {
   };
 };
 
-const notificationCategories: NotificationCategory[] = [
-  {
-    key: "General",
-    icon: "info.circle",
-    items: [
-    {
-      id: "general-1",
-      category: "General",
-      icon: "info.circle",
-      title: "LGU Community Support Briefing",
-      type: "Advisory Bulletin",
-      alertType: "Type: Information Update",
-      severity: "LOW",
-      timestamp: "2026-03-09 08:15:00",
-      description:
-        "Barangay and city support hotlines remain open; refer neighbors to the community safety center at City Hall.",
-      actions: [
-        "Share the hotline number in your block chat.",
-        "Tag incoming visitors that they must check in at the safety desk.",
-      ],
-      source: "City LGU",
-    },
-    {
-      id: "general-2",
-      category: "General",
-      icon: "info.circle",
-      title: "Barangay Evacuation Route Signage",
-      type: "Maintenance Notice",
-      alertType: "Type: Infrastructure Update",
-      severity: "MEDIUM",
-      timestamp: "2026-03-08 17:40:00",
-      description:
-        "New evacuation signposts are being installed along national roads; expect brief lane adjustments this weekend.",
-      actions: [
-        "Plan slight detours if you travel through Zone 3",
-        "Report missing signage via the LGU portal",
-      ],
-      source: "Public Works",
-    },
-    ],
-  },
-  {
-    key: "Alert",
-    icon: "exclamationmark",
-    items: [
-    {
-      id: "earthquake",
-      category: "Alert",
-      icon: "flame",
-      title: "[MOCK] CRITICAL EARTHQUAKE ALERT",
-      type: "Emergency Bulletin",
-      alertType: "Type: Earthquake Emergency",
-      severity: "HIGH",
-      timestamp: "2026-02-25 03:47:51",
-      description:
-        "Critical earthquake activity detected. This is an emergency safety broadcast to all citizens.",
-      actions: [
-        "DROP, COVER, and HOLD.",
-        "Move away from glass, shelves, and power lines.",
-        "Evacuate damaged structures after shaking stops.",
-        "Wait for LGU and rescue advisories.",
-      ],
-      source: "phivolcs",
-    },
-    {
-      id: "weather",
-      category: "Weather",
-      icon: "cloud.sun",
-      title: "[MOCK] CRITICAL WEATHER ALERT",
-      type: "Emergency Bulletin",
-      alertType: "Type: Severe Weather Emergency",
-      severity: "HIGH",
-      timestamp: "2026-02-25 03:43:02",
-      description:
-        "Heavy rainfall and gale-force winds are expected within the next hour.",
-      actions: [
-        "Move away from windows and electrical panels.",
-        "Secure loose items outside and park vehicles indoors.",
-        "Monitor official advisories for flash flood notices.",
-      ],
-      source: "dost-ph",
-    },
-    {
-      id: "fire-alert",
-      category: "Fire",
-      icon: "flame",
-      title: "Building Fire Watch",
-      type: "Emergency Bulletin",
-      alertType: "Type: Fire Alert",
-      severity: "HIGH",
-      timestamp: "2026-03-09 01:20:00",
-      description:
-        "Fire crews are responding to a blaze near the wet market; citizens are asked to avoid smoke-affected areas.",
-      actions: [
-        "Stay indoors with windows closed",
-        "Do not park near narrow alleys to allow firefighting access",
-      ],
-      source: "BFP",
-    },
-    {
-      id: "crash-alert",
-      category: "Alert",
-      icon: "car.side",
-      title: "Bridge Collision Incident",
-      type: "Immediate Alert",
-      alertType: "Type: Transport Accident",
-      severity: "MEDIUM",
-      timestamp: "2026-03-09 11:30:00",
-      description:
-        "A delivery truck collided with guardrails on Osmena Bridge; expect traffic rerouting for next two hours.",
-      actions: [
-        "Use alternative northbound routes via Mabini Avenue",
-        "Follow traffic assist officers pulling aside for emergency vehicles",
-      ],
-      source: "Traffic Management",
-    },
-    ],
-  },
-  {
-    key: "Announcement",
-    icon: "megaphone",
-    items: [
-    {
-      id: "announcement-1",
-      category: "Announcement",
-      icon: "megaphone",
-      title: "City-wide Resilience Drill",
-      type: "Public Announcement",
-      alertType: "Type: Preparedness Activity",
-      severity: "MEDIUM",
-      timestamp: "2026-03-07 11:00:00",
-      description:
-        "LGU invites communities to join the monthly resilience drill this Sunday in Barangay 12.",
-      actions: [
-        "Bring your mask and ID",
-        "Follow the marshals during partial evacuations",
-      ],
-      source: "Office of Civil Defense",
-    },
-    ],
-  },
-  {
-    key: "Reminder",
-    icon: "clock",
-    items: [
-    {
-      id: "reminder-1",
-      category: "Reminder",
-      icon: "clock",
-      title: "Update Emergency Contact Cards",
-      type: "Community Reminder",
-      alertType: "Type: Citizen Task",
-      severity: "LOW",
-      timestamp: "2026-03-06 09:00:00",
-      description:
-        "Submit your updated contact card at the barangay hall before the 15th of the month.",
-      actions: [
-        "Bring a copy of proof of residence",
-        "Ask for a receipt and keep it safe",
-      ],
-      source: "Barangay 12 Secretariat",
-    },
-    ],
-  },
-  {
-    key: "Emergency Broadcast",
-    icon: "shield",
-    items: [
-    {
-      id: "emergency-1",
-      category: "Emergency Broadcast",
-      icon: "shield",
-      title: "Critical Flood Alert Level 2",
-      type: "Emergency Broadcast",
-      alertType: "Type: Flood Warning",
-      severity: "HIGH",
-      timestamp: "2026-03-05 21:10:00",
-      description:
-        "Rivers are rising rapidly due to continuous rainfall; relocation sites are being activated.",
-      actions: [
-        "Move belongings to higher ground.",
-        "Head to the nearest evacuation center if prompted.",
-        "Turn off gas and electricity before leaving.",
-      ],
-      source: "NDRRMC",
-    },
-    ],
-  },
-];
+type AlertApiRow = {
+  id: number;
+  category_id: number | null;
+  title: string;
+  message: string | null;
+  category: string | null;
+  area: string | null;
+  content: string | null;
+  source: string | null;
+  status: string | null;
+  severity: string | null;
+  latitude: number | string | null;
+  longitude: number | string | null;
+  is_viewed: boolean | number | null;
+  incident_id: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
 
 const severityColors: Record<string, string> = {
   HIGH: "#df4338",
@@ -259,10 +83,61 @@ const severityColors: Record<string, string> = {
   LOW: "#2f9d63",
 };
 
-const categoryTabs = [
-  ...notificationCategories.map(({ key, icon }) => ({ key, icon })),
-  { key: "Local News", icon: "newspaper" },
-];
+const severityMap: Record<string, "HIGH" | "MEDIUM" | "LOW"> = {
+  high: "HIGH",
+  medium: "MEDIUM",
+  low: "LOW",
+};
+
+const categoryIconMap: Record<string, IconSymbolName> = {
+  weather: "cloud.sun",
+  earthquake: "flame",
+  fire: "flame",
+  emergency: "shield",
+  alert: "exclamationmark.triangle",
+  warning: "exclamationmark.triangle",
+  advisory: "info.circle",
+  general: "info.circle",
+  news: "newspaper",
+  flood: "drop",
+  traffic: "car.side",
+  reminder: "clock",
+  announcement: "megaphone",
+};
+
+function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
+  const normalizedCategory = (alert.category ?? "").toLowerCase();
+  const normalizedTitle = alert.title.toLowerCase();
+  const normalizedSource = (alert.source ?? "").toLowerCase();
+  const icon =
+    Object.entries(categoryIconMap).find(([key]) =>
+      normalizedCategory.includes(key) ||
+      normalizedTitle.includes(key) ||
+      normalizedSource.includes(key)
+    )?.[1] ?? "bell";
+
+  const severityKey = (alert.severity ?? "low").toLowerCase();
+  const severity = severityMap[severityKey] ?? "LOW";
+  const body = alert.content?.trim() || alert.message?.trim() || "No details available.";
+  const area = alert.area?.trim();
+
+  return {
+    id: String(alert.id),
+    icon,
+    category: alert.category?.trim() || "General",
+    title: alert.title.trim(),
+    type: alert.category?.trim() || "Alert",
+    alertType: `${alert.category?.trim() || "Alert"} Notice`,
+    severity,
+    timestamp: alert.created_at
+      ? new Date(alert.created_at).toLocaleString()
+      : "Recently",
+    description: area ? `${body} Area: ${area}` : body,
+    actions: alert.message?.trim() ? [alert.message.trim()] : [body],
+    source: alert.source?.trim() || "Alertara",
+  };
+}
+
 const timeFilters = [
   "Now",
   "Yesterday",
@@ -270,17 +145,6 @@ const timeFilters = [
   "A Month Ago",
   "A Year Ago",
 ];
-
-function getCategoryItems(categoryKey: string, localNewsItems: NotificationItem[]) {
-  if (categoryKey === "Local News") {
-    return localNewsItems;
-  }
-
-  return (
-    notificationCategories.find((category) => category.key === categoryKey)
-      ?.items ?? []
-  );
-}
 
 const searchAliases: Record<string, string[]> = {
   typhoon: ["weather", "storm", "rain", "flood", "wind", "severe weather"],
@@ -319,6 +183,14 @@ function buildAlertSearchText(alert: NotificationItem) {
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function getCategoryIcon(category: string) {
+  const normalized = category.toLowerCase();
+  return (
+    Object.entries(categoryIconMap).find(([key]) => normalized.includes(key))?.[1] ??
+    "bell"
+  );
 }
 
 function matchesAlertSearch(alert: NotificationItem, query: string) {
@@ -555,7 +427,7 @@ export default function NotificationScreen() {
   const cardBackground = isDarkMode ? "#18252a" : "#ffffff";
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
   const highlightColor = isDarkMode ? Colors.dark.tint : Colors.light.tint;
-  const [selectedCategory, setSelectedCategory] = useState(categoryTabs[0].key);
+  const [selectedCategory, setSelectedCategory] = useState("All Alerts");
   const [selectedTimeFilter, setSelectedTimeFilter] = useState(timeFilters[0]);
   const [filterVisible, setFilterVisible] = useState(false);
   const [menuMounted, setMenuMounted] = useState(false);
@@ -564,6 +436,9 @@ export default function NotificationScreen() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchMounted, setSearchMounted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [backendAlerts, setBackendAlerts] = useState<NotificationItem[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState("");
   const [localNewsItems, setLocalNewsItems] = useState<NotificationItem[]>([]);
   const [localNewsLoading, setLocalNewsLoading] = useState(false);
   const [localNewsError, setLocalNewsError] = useState("");
@@ -586,9 +461,38 @@ export default function NotificationScreen() {
     inputRange: [0, 1],
     outputRange: [-60, 0],
   });
+  const allNotifications = useMemo(
+    () => [...backendAlerts, ...localNewsItems],
+    [backendAlerts, localNewsItems]
+  );
+  const categoryTabs = useMemo(() => {
+    const categories = new Map<string, IconSymbolName>();
+    backendAlerts.forEach((alert) => {
+      const category = alert.category || "General";
+      if (!categories.has(category)) {
+        categories.set(category, getCategoryIcon(category));
+      }
+    });
+
+    return [
+      { key: "All Alerts", icon: "bell" as IconSymbolName },
+      ...Array.from(categories.entries()).map(([key, icon]) => ({ key, icon })),
+      { key: "Local News", icon: "newspaper" as IconSymbolName },
+    ];
+  }, [backendAlerts]);
   const selectedCategoryItems = useMemo(() => {
-    return getCategoryItems(selectedCategory, localNewsItems);
-  }, [localNewsItems, selectedCategory]);
+    if (selectedCategory === "All Alerts") {
+      return allNotifications;
+    }
+
+    if (selectedCategory === "Local News") {
+      return localNewsItems;
+    }
+
+    return backendAlerts.filter(
+      (alert) => (alert.category || "General") === selectedCategory
+    );
+  }, [allNotifications, backendAlerts, localNewsItems, selectedCategory]);
 
   const visibleNotifications = useMemo(() => {
     const normalizedSearch = normalizeSearchValue(searchQuery);
@@ -604,13 +508,20 @@ export default function NotificationScreen() {
 
   const categoryUnreadCounts = useMemo(() => {
     return categoryTabs.reduce<Record<string, number>>((counts, category) => {
-      const categoryItems = getCategoryItems(category.key, localNewsItems);
+      const categoryItems =
+        category.key === "All Alerts"
+          ? allNotifications
+          : category.key === "Local News"
+            ? localNewsItems
+            : backendAlerts.filter(
+                (alert) => (alert.category || "General") === category.key
+              );
       counts[category.key] = categoryItems.filter(
         (alert) => !acknowledgedIds.includes(alert.id)
       ).length;
       return counts;
     }, {});
-  }, [acknowledgedIds, localNewsItems]);
+  }, [acknowledgedIds, allNotifications, backendAlerts, categoryTabs, localNewsItems]);
 
   useEffect(() => {
     if (filterVisible) {
@@ -652,6 +563,38 @@ export default function NotificationScreen() {
 
   useEffect(() => {
     let active = true;
+
+    const loadBackendAlerts = async () => {
+      setAlertsLoading(true);
+      setAlertsError("");
+
+      try {
+        const response = await apiClient.get("/alerts");
+        const rows = Array.isArray(response.data)
+          ? (response.data as AlertApiRow[])
+          : Array.isArray(response.data?.data)
+            ? (response.data.data as AlertApiRow[])
+            : [];
+
+        if (!active) {
+          return;
+        }
+
+        setBackendAlerts(rows.map(mapAlertToNotificationItem));
+      } catch (error) {
+        if (active) {
+          setAlertsError(
+            error instanceof Error ? error.message : "Failed to load alerts."
+          );
+        }
+      } finally {
+        if (active) {
+          setAlertsLoading(false);
+        }
+      }
+    };
+
+    loadBackendAlerts();
 
     const loadLocalNews = async () => {
       if (!gnewsApiKey) {
@@ -788,16 +731,15 @@ export default function NotificationScreen() {
   }, [acknowledgedIds]);
 
   useEffect(() => {
-    const unreadCount = [
-      ...notificationCategories.flatMap((category) => category.items),
-      ...localNewsItems,
-    ].filter((alert) => !acknowledgedIds.includes(alert.id)).length;
+    const unreadCount = allNotifications.filter(
+      (alert) => !acknowledgedIds.includes(alert.id)
+    ).length;
 
     void AsyncStorage.setItem(
       NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
       String(unreadCount)
     );
-  }, [acknowledgedIds, localNewsItems]);
+  }, [acknowledgedIds, allNotifications]);
 
   return (
     <SafeAreaView
@@ -965,6 +907,22 @@ export default function NotificationScreen() {
             ))}
           </ScrollView>
 
+          {(alertsLoading || localNewsLoading) && (
+            <View style={styles.statusCard}>
+              <ThemedText style={[styles.statusText, { color: textColor }]}>
+                Loading alerts...
+              </ThemedText>
+            </View>
+          )}
+
+          {alertsError ? (
+            <View style={styles.statusCard}>
+              <ThemedText style={[styles.statusText, { color: textColor }]}>
+                {alertsError}
+              </ThemedText>
+            </View>
+          ) : null}
+
           {menuMounted && (
             <Animated.View
               style={[
@@ -1053,6 +1011,13 @@ export default function NotificationScreen() {
             responseStatus={citizenResponses[alert.id] ?? null}
           />
         ))}
+        {!alertsLoading && !localNewsLoading && visibleNotifications.length === 0 && (
+          <View style={styles.statusCard}>
+            <ThemedText style={[styles.statusText, { color: textColor }]}>
+              No notifications found.
+            </ThemedText>
+          </View>
+        )}
         {selectedCategory === "Local News" && localNewsLoading && (
           <View style={styles.statusCard}>
             <ThemedText style={[styles.statusText, { color: textColor }]}>
