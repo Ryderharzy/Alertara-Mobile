@@ -753,8 +753,14 @@ export default function NotificationScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerStack}>
-          <View style={styles.headerRow}>
-            <View style={styles.headerLeft}>
+          <View
+            style={[
+              styles.headerBar,
+              { backgroundColor: isDarkMode ? "#132428" : "#e8f1ec" },
+            ]}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.headerLeft}>
               <Pressable
                 style={({ pressed }) => [
                   styles.backButton,
@@ -781,7 +787,7 @@ export default function NotificationScreen() {
                 Notifications
               </ThemedText>
             </View>
-            <View style={styles.headerActions}>
+              <View style={styles.headerActions}>
               <Pressable
                 style={({ pressed }) => [
                   styles.iconButton,
@@ -819,6 +825,7 @@ export default function NotificationScreen() {
               >
                 <FontAwesome name="filter" size={20} color={highlightColor} />
               </Pressable>
+              </View>
             </View>
           </View>
 
@@ -1249,12 +1256,19 @@ const styles = StyleSheet.create({
     position: "relative",
     paddingBottom: 12,
   },
+  headerBar: {
+    width: "100%",
+    marginHorizontal: 1,
+    marginTop: 24,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
-    marginTop: 20,
+    width: "100%",
   },
   headerTitle: {
     fontSize: 30,
