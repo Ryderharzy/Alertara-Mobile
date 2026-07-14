@@ -37,6 +37,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
   const [pendingUser, setPendingUser] = useState<{ id: number; name: string; email: string; phone: string | null; status: string | null; user_type: string | null } | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const successScale = useRef(new Animated.Value(0.7)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
 
@@ -48,13 +49,18 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
+      setLoginError(null);
       const user = await signIn(email, password);
       setPendingUser(user);
       setSuccessVisible(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Please check your credentials and try again";
-      Alert.alert("Login Failed", message);
-      console.error("Login error:", error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Please check your credentials and try again.';
+      setLoginError(message);
+      Alert.alert('Login Failed', message);
+      console.error('Login error:', error);
     } finally {
       setLoading(false);
     }
@@ -213,6 +219,12 @@ export default function LoginScreen() {
                 Forgot Password?
               </Text>
             </TouchableOpacity>
+
+            {loginError ? (
+              <Text style={styles.errorText} accessibilityRole="alert">
+                {loginError}
+              </Text>
+            ) : null}
           </View>
 
           {/* Action Buttons */}
@@ -412,6 +424,12 @@ export const styles = StyleSheet.create({
   signupLink: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  errorText: {
+    color: '#ef4444',
+    fontSize: 14,
+    marginTop: 12,
+    textAlign: 'center',
   },
   continueWithoutButton: {
     paddingVertical: 12,

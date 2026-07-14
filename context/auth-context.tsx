@@ -66,6 +66,50 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     bootstrapAsync();
   }, []);
 
+  const getApiErrorMessage = (error: unknown): string => {
+    if (axios.isAxiosError(error)) {
+      if (error.response) {
+        const data = error.response.data as {
+          message?: string;
+          errors?: Record<string, string[]>;
+        } | string | undefined;
+
+        if (typeof data === 'object' && data !== null) {
+          const firstError = data.errors ? Object.values(data.errors).flat()[0] : undefined;
+          if (firstError) {
+            return firstError;
+          }
+          if (data.message) {
+            return data.message;
+          }
+        }
+
+        switch (error.response.status) {
+          case 401:
+            return 'Invalid email or password.';
+          case 422:
+            return 'Please check your login details and try again.';
+          case 503:
+            return 'Service unavailable. Please try again later.';
+          default:
+            return `Server error (${error.response.status}). Please try again.`;
+        }
+      }
+
+      if (error.code === 'ECONNABORTED') {
+        return 'Request timeout. Please try again.';
+      }
+
+      return 'Network error. Please check your connection.';
+    }
+
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+
+    return 'An unexpected error occurred. Please try again.';
+  };
+
   const authContext = {
     isLoading,
     userToken,
@@ -79,26 +123,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         const signedInUser = response.data.user as UserProfile;
+        if (!signedInUser) {
+          throw new Error('Login succeeded but no user data was returned.');
+        }
         return signedInUser;
       } catch (error) {
         console.error('Login failed:', error);
-        if (error instanceof Error && error.message) {
-          throw new Error(error.message);
-        }
-        if (axios.isAxiosError(error) && error.response?.status === 422) {
-          const data = error.response.data as {
-            message?: string;
-            errors?: Record<string, string[]>;
-          };
-
-          const firstError =
-            data.errors ? Object.values(data.errors).flat()[0] : undefined;
-          throw new Error(firstError ?? data.message ?? 'Validation failed.');
-        }
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          throw new Error('Invalid email or password.');
-        }
-        throw error;
+        throw new Error(getApiErrorMessage(error));
       }
     },
     signUp: async (name: string, email: string, password: string, phone: string) => {
@@ -111,23 +142,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         const createdUser = response.data.user as UserProfile;
+        if (!createdUser) {
+          throw new Error('Signup succeeded but no user data was returned.');
+        }
         return createdUser;
       } catch (error) {
         console.error('Signup failed:', error);
-        if (error instanceof Error && error.message) {
-          throw new Error(error.message);
-        }
-        if (axios.isAxiosError(error) && error.response?.status === 422) {
-          const data = error.response.data as {
-            message?: string;
-            errors?: Record<string, string[]>;
-          };
-
-          const firstError =
-            data.errors ? Object.values(data.errors).flat()[0] : undefined;
-          throw new Error(firstError ?? data.message ?? 'Validation failed.');
-        }
-        throw error;
+        throw new Error(getApiErrorMessage(error));
       }
     },
     activateSession: async (user: UserProfile) => {
