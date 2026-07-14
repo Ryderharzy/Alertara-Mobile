@@ -4,6 +4,7 @@ import {
   LIGHT_BACKGROUND,
   TealColors,
 } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
@@ -65,8 +66,11 @@ export default function SignupScreen() {
   const colors = Colors[isDarkMode ? "dark" : "light"];
   const bgColor = isDarkMode ? DARK_BACKGROUND : LIGHT_BACKGROUND;
 
+  const { signUp, activateSession } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [nationality, setNationality] = useState("");
   const [phone, setPhone] = useState("");
   const [selectedDistrict, setSelectedDistrict] = useState("");
@@ -75,6 +79,7 @@ export default function SignupScreen() {
   const [houseUnit, setHouseUnit] = useState("");
   const [street, setStreet] = useState("");
   const [consentChecked, setConsentChecked] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
   const [showNationalityModal, setShowNationalityModal] = useState(false);
   const [showDistrictModal, setShowDistrictModal] = useState(false);
   const [showBarangayModal, setShowBarangayModal] = useState(false);
@@ -110,10 +115,12 @@ export default function SignupScreen() {
     setShowBarangayModal(false);
   };
 
-  const handleCreateAccount = () => {
+  const handleCreateAccount = async () => {
     if (
       !fullName ||
       !email ||
+      !password ||
+      !confirmPassword ||
       !nationality ||
       !phone ||
       !selectedDistrict ||
@@ -122,6 +129,11 @@ export default function SignupScreen() {
       !street
     ) {
       Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match.");
       return;
     }
 
@@ -134,10 +146,33 @@ export default function SignupScreen() {
     }
 
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    setSignupError(null);
+
+    try {
+      const createdUser = await signUp({
+        name: fullName,
+        email,
+        password,
+        phone,
+        nationality,
+        district: selectedDistrict,
+        barangay,
+        house_unit: houseUnit,
+        street,
+      });
+
+      await activateSession(createdUser);
       setSuccessVisible(true);
-    }, 700);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Registration failed. Please try again.";
+      setSignupError(message);
+      Alert.alert("Registration Failed", message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -264,6 +299,68 @@ export default function SignupScreen() {
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    editable={!loading}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Password
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    signupStyles.textInputWrapper,
+                    {
+                      borderColor: TealColors.primary,
+                      backgroundColor: `${TealColors.primary}05`,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={20}
+                    color={colors.text}
+                  />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    placeholder="Enter password"
+                    placeholderTextColor={colors.icon}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    editable={!loading}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={[styles.label, { color: colors.text }]}>
+                  Confirm Password
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    signupStyles.textInputWrapper,
+                    {
+                      borderColor: TealColors.primary,
+                      backgroundColor: `${TealColors.primary}05`,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={20}
+                    color={colors.text}
+                  />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    placeholder="Confirm password"
+                    placeholderTextColor={colors.icon}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry
                     editable={!loading}
                   />
                 </View>
@@ -566,6 +663,17 @@ export default function SignupScreen() {
                 </Pressable>
               </View>
             </View>
+
+            {signupError ? (
+              <Text
+                style={[
+                  styles.subtitle,
+                  { color: "#ef4444", textAlign: "center", marginBottom: 12 },
+                ]}
+              >
+                {signupError}
+              </Text>
+            ) : null}
 
             <TouchableOpacity
               style={[

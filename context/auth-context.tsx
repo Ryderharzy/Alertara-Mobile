@@ -1,7 +1,19 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import { apiClient } from '@/services/api/api-config';
+import { apiClient } from "@/services/api/api-config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import axios from "axios";
+import React, { createContext, useContext, useEffect, useState } from "react";
+
+type SignUpData = {
+  name: string;
+  email: string;
+  password: string;
+  phone: string;
+  nationality: string;
+  district: string;
+  barangay: string;
+  house_unit: string;
+  street: string;
+};
 
 type AuthContextType = {
   isLoading: boolean;
@@ -9,7 +21,7 @@ type AuthContextType = {
   userProfile: UserProfile | null;
   onboardingCompleted: boolean;
   signIn: (email: string, password: string) => Promise<UserProfile>;
-  signUp: (name: string, email: string, password: string, phone: string) => Promise<UserProfile>;
+  signUp: (data: SignUpData) => Promise<UserProfile>;
   activateSession: (user: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
@@ -36,9 +48,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const bootstrapAsync = async () => {
       try {
         const [token, onboarded, profile] = await Promise.all([
-          AsyncStorage.getItem('userToken'),
-          AsyncStorage.getItem('onboardingCompleted'),
-          AsyncStorage.getItem('userProfile'),
+          AsyncStorage.getItem("userToken"),
+          AsyncStorage.getItem("onboardingCompleted"),
+          AsyncStorage.getItem("userProfile"),
         ]);
 
         // Only set token if it exists after the clear
@@ -53,11 +65,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         // Only set onboarding completed if it was saved (should be null due to above clear)
-        if (onboarded === 'true') {
+        if (onboarded === "true") {
           setOnboardingCompleted(true);
         }
       } catch (e) {
-        console.error('Failed to restore token:', e);
+        console.error("Failed to restore token:", e);
       } finally {
         setIsLoading(false);
       }
@@ -69,13 +81,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const getApiErrorMessage = (error: unknown): string => {
     if (axios.isAxiosError(error)) {
       if (error.response) {
-        const data = error.response.data as {
-          message?: string;
-          errors?: Record<string, string[]>;
-        } | string | undefined;
+        const data = error.response.data as
+          | {
+              message?: string;
+              errors?: Record<string, string[]>;
+            }
+          | string
+          | undefined;
 
-        if (typeof data === 'object' && data !== null) {
-          const firstError = data.errors ? Object.values(data.errors).flat()[0] : undefined;
+        if (typeof data === "object" && data !== null) {
+          const firstError = data.errors
+            ? Object.values(data.errors).flat()[0]
+            : undefined;
           if (firstError) {
             return firstError;
           }
@@ -86,28 +103,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         switch (error.response.status) {
           case 401:
-            return 'Invalid email or password.';
+            return "Invalid email or password.";
           case 422:
-            return 'Please check your login details and try again.';
+            return "Please check your login details and try again.";
           case 503:
-            return 'Service unavailable. Please try again later.';
+            return "Service unavailable. Please try again later.";
           default:
             return `Server error (${error.response.status}). Please try again.`;
         }
       }
 
-      if (error.code === 'ECONNABORTED') {
-        return 'Request timeout. Please try again.';
+      if (error.code === "ECONNABORTED") {
+        return "Request timeout. Please try again.";
       }
 
-      return 'Network error. Please check your connection.';
+      return "Network error. Please check your connection.";
     }
 
     if (error instanceof Error && error.message) {
       return error.message;
     }
 
-    return 'An unexpected error occurred. Please try again.';
+    return "An unexpected error occurred. Please try again.";
   };
 
   const authContext = {
@@ -117,82 +134,89 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     onboardingCompleted,
     signIn: async (email: string, password: string) => {
       try {
-        const response = await apiClient.post('/login', {
+        const response = await apiClient.post("/login", {
           email,
           password,
         });
 
         const signedInUser = response.data.user as UserProfile;
         if (!signedInUser) {
-          throw new Error('Login succeeded but no user data was returned.');
+          throw new Error("Login succeeded but no user data was returned.");
         }
         return signedInUser;
       } catch (error) {
-        console.error('Login failed:', error);
+        console.error("Login failed:", error);
         throw new Error(getApiErrorMessage(error));
       }
     },
-    signUp: async (name: string, email: string, password: string, phone: string) => {
+    signUp: async (data: SignUpData) => {
       try {
-        const response = await apiClient.post('/register', {
-          name,
-          email,
-          password,
-          phone,
+        const response = await apiClient.post("/register", {
+          name: data.name,
+          email: data.email,
+          password: data.password,
+          phone: data.phone,
+          nationality: data.nationality,
+          district: data.district,
+          barangay: data.barangay,
+          house_unit: data.house_unit,
+          street: data.street,
         });
 
         const createdUser = response.data.user as UserProfile;
         if (!createdUser) {
-          throw new Error('Signup succeeded but no user data was returned.');
+          throw new Error("Signup succeeded but no user data was returned.");
         }
         return createdUser;
       } catch (error) {
-        console.error('Signup failed:', error);
+        console.error("Signup failed:", error);
         throw new Error(getApiErrorMessage(error));
       }
     },
     activateSession: async (user: UserProfile) => {
       setUserProfile(user);
-      await AsyncStorage.setItem('userProfile', JSON.stringify(user));
+      await AsyncStorage.setItem("userProfile", JSON.stringify(user));
     },
     signOut: async () => {
       try {
         try {
-          await apiClient.post('/logout');
+          await apiClient.post("/logout");
         } catch (logoutError) {
           console.warn(
-            'Logout API call failed, continuing local sign-out:',
-            logoutError
+            "Logout API call failed, continuing local sign-out:",
+            logoutError,
           );
         }
 
         setUserToken(null);
         setUserProfile(null);
-        await AsyncStorage.removeItem('userToken');
-        await AsyncStorage.removeItem('userProfile');
+        await AsyncStorage.removeItem("userToken");
+        await AsyncStorage.removeItem("userProfile");
       } catch (error) {
-        console.error('Logout failed:', error);
+        console.error("Logout failed:", error);
         throw error;
       }
     },
     completeOnboarding: async () => {
       try {
         setOnboardingCompleted(true);
-        await AsyncStorage.setItem('onboardingCompleted', 'true');
+        await AsyncStorage.setItem("onboardingCompleted", "true");
       } catch (error) {
-        console.error('Failed to save onboarding state:', error);
+        console.error("Failed to save onboarding state:", error);
         throw error;
       }
     },
   };
 
-  return <AuthContext.Provider value={authContext}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={authContext}>{children}</AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };

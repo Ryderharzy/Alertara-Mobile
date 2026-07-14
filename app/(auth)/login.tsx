@@ -1,8 +1,8 @@
 import {
-  Colors,
-  DARK_BACKGROUND,
-  LIGHT_BACKGROUND,
-  TealColors,
+    Colors,
+    DARK_BACKGROUND,
+    LIGHT_BACKGROUND,
+    TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
@@ -10,19 +10,19 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-  Alert,
-  Animated,
-  Easing,
-  ActivityIndicator,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Easing,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 export default function LoginScreen() {
@@ -36,7 +36,14 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
-  const [pendingUser, setPendingUser] = useState<{ id: number; name: string; email: string; phone: string | null; status: string | null; user_type: string | null } | null>(null);
+  const [pendingUser, setPendingUser] = useState<{
+    id: number;
+    name: string;
+    email: string;
+    phone: string | null;
+    status: string | null;
+    user_type: string | null;
+  } | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
   const successScale = useRef(new Animated.Value(0.7)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
@@ -57,10 +64,10 @@ export default function LoginScreen() {
       const message =
         error instanceof Error
           ? error.message
-          : 'Please check your credentials and try again.';
+          : "Please check your credentials and try again.";
       setLoginError(message);
-      Alert.alert('Login Failed', message);
-      console.error('Login error:', error);
+      Alert.alert("Login Failed", message);
+      console.error("Login error:", error);
     } finally {
       setLoading(false);
     }
@@ -94,7 +101,14 @@ export default function LoginScreen() {
     }, 1200);
 
     return () => clearTimeout(timeout);
-  }, [activateSession, pendingUser, router, successOpacity, successScale, successVisible]);
+  }, [
+    activateSession,
+    pendingUser,
+    router,
+    successOpacity,
+    successScale,
+    successVisible,
+  ]);
 
   const handleSignUp = () => {
     router.push("/(auth)/signup");
@@ -282,10 +296,7 @@ export default function LoginScreen() {
 
       {successVisible && (
         <Animated.View
-          style={[
-            styles.successOverlay,
-            { opacity: successOpacity },
-          ]}
+          style={[styles.successOverlay, { opacity: successOpacity }]}
         >
           <Animated.View
             style={[
@@ -298,7 +309,10 @@ export default function LoginScreen() {
             </View>
             <Text style={styles.successTitle}>Account verified</Text>
             <Text style={styles.successSubtitle}>Login successful</Text>
-            <ActivityIndicator color={TealColors.primary} style={{ marginTop: 12 }} />
+            <ActivityIndicator
+              color={TealColors.primary}
+              style={{ marginTop: 12 }}
+            />
           </Animated.View>
         </Animated.View>
       )}
@@ -426,10 +440,10 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
   },
   errorText: {
-    color: '#ef4444',
+    color: "#ef4444",
     fontSize: 14,
     marginTop: 12,
-    textAlign: 'center',
+    textAlign: "center",
   },
   continueWithoutButton: {
     paddingVertical: 12,
