@@ -256,6 +256,8 @@ const NotificationCard = ({
               id: alert.id,
               title: alert.title,
               category: alert.category,
+              status: alert.severity,
+              icon: alert.icon,
             },
           } as never)
         }
@@ -363,6 +365,8 @@ const NotificationCard = ({
                 id: alert.id,
                 title: alert.title,
                 category: alert.category,
+                status: alert.severity,
+                icon: alert.icon,
               },
             } as never)
           }
@@ -688,7 +692,13 @@ export default function NotificationScreen() {
   const handleGeneralChat = () =>
     router.push({
       pathname: "/chat/[id]",
-      params: { id: "general", title: "General Support", category: "General" },
+      params: {
+        id: "general",
+        title: "General Support",
+        category: "General",
+        status: "Active",
+        icon: "robot",
+      },
     } as never);
 
   const handleAcknowledge = (alertId: string) => {
@@ -1202,6 +1212,8 @@ export default function NotificationScreen() {
                         id: alert.id,
                         title: alert.title,
                         category: alert.category,
+                        status: alert.severity,
+                        icon: alert.icon,
                       },
                     } as never);
                   }}

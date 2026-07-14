@@ -2,21 +2,21 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/context/theme-context";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-  SafeAreaView,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
 } from "react-native";
-import { MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
 
 type ChatMessage = {
   id: string;
@@ -61,17 +61,40 @@ const MAX_HISTORY = 50;
 export default function ChatScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { id, title, category } = useLocalSearchParams<{
+  const {
+    id,
+    title,
+    category,
+    status: rawStatus,
+    icon: rawIcon,
+  } = useLocalSearchParams<{
     id?: string;
     title?: string;
     category?: string;
+    status?: string;
+    icon?: string;
   }>();
   const alertTitle = decodeURIComponent(title ?? "Alert chat");
   const threadId = id ?? "general";
+  const status = rawStatus ? decodeURIComponent(rawStatus) : undefined;
+  const threadIcon = rawIcon ? decodeURIComponent(rawIcon) : "robot";
   const storageKey = `${STORAGE_PREFIX}${threadId}`;
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<ScrollView>(null);
+
+  const categoryLabel = category ? decodeURIComponent(category) : "General";
+  const statusLabel = status ? decodeURIComponent(status) : undefined;
+  const iconName = threadIcon || "robot";
+  const statusColor = statusLabel
+    ? statusLabel.toLowerCase().includes("pend")
+      ? "#e3b341"
+      : statusLabel.toLowerCase().includes("resolve")
+        ? "#2f9d63"
+        : statusLabel.toLowerCase().includes("progress")
+          ? "#3b82f6"
+          : "#9ca3af"
+    : "#9ca3af";
 
   const promptChips = useMemo(() => {
     const key = (category ?? "General").toString();
@@ -81,6 +104,54 @@ export default function ChatScreen() {
   useEffect(() => {
     scrollRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
+
+  const buildInitialMessage = () => {
+    const statusText = statusLabel ? `Current status: ${statusLabel}. ` : "";
+    const categoryText =
+      categoryLabel !== "General" ? `${categoryLabel} incident. ` : "";
+    return `You’re chatting about "${alertTitle}". ${categoryText}${statusText}I can help with safety guidance, updates, next steps, or follow-up information.`;
+  };
+
+  const generateBotReply = (message: string) => {
+    const normalized = message.toLowerCase();
+    const categoryPrefix =
+      categoryLabel !== "General" ? `${categoryLabel} incident: ` : "";
+
+    if (normalized.includes("status") || normalized.includes("update")) {
+      return `${categoryPrefix}Your reported incident is currently marked as ${statusLabel ?? "pending"}. If the situation changes, update the details here so you can stay coordinated with responders.`;
+    }
+
+    if (
+      normalized.includes("evac") ||
+      normalized.includes("route") ||
+      normalized.includes("safe")
+    ) {
+      return `${categoryPrefix}Choose the safest route away from affected areas. Avoid hazard zones, follow official directions, and keep a clear path for emergency vehicles.`;
+    }
+
+    if (
+      normalized.includes("contact") ||
+      normalized.includes("authority") ||
+      normalized.includes("police") ||
+      normalized.includes("fire")
+    ) {
+      return `${categoryPrefix}Contact the nearest emergency response team if the situation worsens. For non-critical updates, I can help you phrase the message to the right authority.`;
+    }
+
+    if (
+      normalized.includes("help") ||
+      normalized.includes("what") ||
+      normalized.includes("how")
+    ) {
+      return `${categoryPrefix}I can help by summarizing your current status, suggesting next steps, or pointing you to the right local support resources. What would you like to do next?`;
+    }
+
+    return `${categoryPrefix}Here are the best next steps:
+• Keep clear of the affected area.
+• Stay available for updates.
+• Share any new details or changes in status.
+• Contact authorities if conditions get worse.`;
+  };
 
   useEffect(() => {
     let active = true;
@@ -99,7 +170,7 @@ export default function ChatScreen() {
           {
             id: "m-0",
             from: "bot",
-            text: `You’re chatting about "${alertTitle}". Ask for instructions, sources, or next steps.`,
+            text: buildInitialMessage(),
             sentAt: Date.now(),
           },
         ]);
@@ -108,13 +179,13 @@ export default function ChatScreen() {
     return () => {
       active = false;
     };
-  }, [storageKey, alertTitle]);
+  }, [storageKey, alertTitle, statusLabel, categoryLabel]);
 
   useEffect(() => {
     if (!messages.length) return;
     void AsyncStorage.setItem(
       storageKey,
-      JSON.stringify(messages.slice(-MAX_HISTORY))
+      JSON.stringify(messages.slice(-MAX_HISTORY)),
     );
   }, [messages, storageKey]);
 
@@ -129,19 +200,15 @@ export default function ChatScreen() {
     };
     setMessages((prev) => [...prev, userMsg].slice(-MAX_HISTORY));
     setInput("");
-    // Mock bot reply
+
     setTimeout(() => {
-      setMessages((prev) =>
-        [
-          ...prev,
-          {
-            id: `b-${Date.now()}`,
-            from: "bot",
-            text: `Bot: For "${alertTitle}", here’s a quick check — follow official guidance, stay tuned for updates, and ensure your household is ready.`,
-            sentAt: Date.now(),
-          },
-        ].slice(-MAX_HISTORY)
-      );
+      const botMsg: ChatMessage = {
+        id: `b-${Date.now()}`,
+        from: "bot",
+        text: generateBotReply(trimmed),
+        sentAt: Date.now(),
+      };
+      setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
     }, 900);
   };
 
@@ -157,7 +224,9 @@ export default function ChatScreen() {
     ]);
   };
 
-  const screenBg = isDarkMode ? Colors.dark.background : Colors.light.background;
+  const screenBg = isDarkMode
+    ? Colors.dark.background
+    : Colors.light.background;
   const cardBg = isDarkMode ? "#1c2830" : "#ffffff";
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
   const bubbleBot = "rgba(46, 125, 95, 0.12)";
@@ -176,23 +245,51 @@ export default function ChatScreen() {
               <IconSymbol name="arrow.left" size={18} color="#ffffff" />
             </Pressable>
             <View style={styles.avatar}>
-              <MaterialCommunityIcons name="robot" size={26} color="#0f172a" />
+              <IconSymbol name={iconName} size={26} color="#0f172a" />
             </View>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.heroTitle} numberOfLines={1}>
                 {alertTitle}
               </ThemedText>
               <ThemedText style={styles.heroSubtitle} numberOfLines={1}>
-                {(category ? decodeURIComponent(category) : "General") + " · AI Assistant"}
+                {categoryLabel} · AI Assistant
               </ThemedText>
+              {statusLabel ? (
+                <View
+                  style={[
+                    styles.statusPill,
+                    {
+                      borderColor: statusColor,
+                      backgroundColor: `${statusColor}20`,
+                    },
+                  ]}
+                >
+                  <ThemedText
+                    style={[styles.statusPillText, { color: statusColor }]}
+                  >
+                    Status: {statusLabel}
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
-            <Pressable onPress={handleReset} style={styles.resetBtn} accessibilityLabel="Reset chat history">
-              <IconSymbol name="arrow.counterclockwise" size={18} color="#e0f2f1" />
+            <Pressable
+              onPress={handleReset}
+              style={styles.resetBtn}
+              accessibilityLabel="Reset chat history"
+            >
+              <IconSymbol
+                name="arrow.counterclockwise"
+                size={18}
+                color="#e0f2f1"
+              />
             </Pressable>
           </View>
 
           <View style={[styles.threadCard, { backgroundColor: cardBg }]}>
-            <ScrollView ref={scrollRef} contentContainerStyle={styles.threadContent}>
+            <ScrollView
+              ref={scrollRef}
+              contentContainerStyle={styles.threadContent}
+            >
               {messages.map((m) => (
                 <View
                   key={m.id}
@@ -200,7 +297,7 @@ export default function ChatScreen() {
                     styles.bubble,
                     m.from === "user"
                       ? [styles.userBubble, { backgroundColor: bubbleUser }]
-                      : [styles.botBubble, { backgroundColor: bubbleBot }]
+                      : [styles.botBubble, { backgroundColor: bubbleBot }],
                   ]}
                 >
                   <ThemedText
@@ -228,7 +325,9 @@ export default function ChatScreen() {
                 style={({ pressed }) => [
                   styles.chip,
                   {
-                    backgroundColor: pressed ? `${TealColors.primary}1A` : `${TealColors.primary}10`,
+                    backgroundColor: pressed
+                      ? `${TealColors.primary}1A`
+                      : `${TealColors.primary}10`,
                     borderColor: `${TealColors.primary}40`,
                   },
                 ]}
@@ -256,12 +355,19 @@ export default function ChatScreen() {
             <Pressable
               style={[
                 styles.sendBtn,
-                { opacity: input.trim().length ? 1 : 0.4, borderColor: TealColors.primary },
+                {
+                  opacity: input.trim().length ? 1 : 0.4,
+                  borderColor: TealColors.primary,
+                },
               ]}
               disabled={!input.trim().length}
               onPress={() => send(input)}
             >
-              <IconSymbol name="paperplane.fill" size={18} color={TealColors.primary} />
+              <IconSymbol
+                name="paperplane.fill"
+                size={18}
+                color={TealColors.primary}
+              />
             </Pressable>
           </View>
         </SafeAreaView>
@@ -273,8 +379,13 @@ export default function ChatScreen() {
 function SafeHeader({ onBack }: { onBack: () => void }) {
   return (
     <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <Pressable onPress={onBack} style={{ paddingVertical: 6, paddingHorizontal: 4 }}>
-        <ThemedText style={{ fontSize: 14, color: TealColors.primary }}>‹ Back</ThemedText>
+      <Pressable
+        onPress={onBack}
+        style={{ paddingVertical: 6, paddingHorizontal: 4 }}
+      >
+        <ThemedText style={{ fontSize: 14, color: TealColors.primary }}>
+          ‹ Back
+        </ThemedText>
       </Pressable>
     </View>
   );
@@ -315,6 +426,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#e0f2f1",
     marginTop: 2,
+  },
+  statusLabel: {
+    fontSize: 11,
+    color: "#d7f7ee",
+    marginTop: 4,
+    opacity: 0.88,
+  },
+  statusPill: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   resetBtn: {
     padding: 6,

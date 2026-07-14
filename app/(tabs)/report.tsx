@@ -8,16 +8,16 @@ import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -71,6 +71,9 @@ export default function ReportScreen() {
   const [lastIncidentChat, setLastIncidentChat] = useState<{
     id: string;
     title: string;
+    category: string;
+    status: string;
+    icon: string;
   } | null>(null);
 
   const background = isDarkMode
@@ -204,7 +207,12 @@ export default function ReportScreen() {
         }[] = rawIndex ? JSON.parse(rawIndex) : [];
         const filtered = parsed.filter((item) => item.id !== payload.id);
         const next = [
-          { ...chatParams, updatedAt: payload.submittedAt },
+          {
+            ...chatParams,
+            updatedAt: payload.submittedAt,
+            status: payload.status,
+            icon: payload.icon,
+          },
           ...filtered,
         ].slice(0, 20);
         await AsyncStorage.setItem(INCIDENT_INDEX_KEY, JSON.stringify(next));

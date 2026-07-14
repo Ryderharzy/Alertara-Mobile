@@ -1,30 +1,30 @@
-import React, { useState } from "react";
 import { Header } from "@/components/header";
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { systemClusters, systemRegistry } from "@/data/central-command-systems";
 import {
-  Colors,
-  DARK_BORDER,
-  DARK_CARD_BG,
-  DARK_ICON,
-  LIGHT_BORDER,
-  LIGHT_CARD_BG,
-  LIGHT_ICON,
-  TealColors,
+    Colors,
+    DARK_BORDER,
+    DARK_CARD_BG,
+    DARK_ICON,
+    LIGHT_BORDER,
+    LIGHT_CARD_BG,
+    LIGHT_ICON,
+    TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import { systemClusters, systemRegistry } from "@/data/central-command-systems";
 import { useRouter } from "expo-router";
+import React, { useState } from "react";
 import {
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  Image,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  View,
+    Image,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    View,
 } from "react-native";
 
 export default function HomeScreen() {
@@ -66,12 +66,12 @@ export default function HomeScreen() {
   // Scroll progress based on actual scrollable range
   const maxScrollDistance = Math.max(
     scrollMetrics.contentHeight - scrollMetrics.visibleHeight,
-    1
+    1,
   );
 
   const scrollProgress = Math.max(
     0,
-    Math.min(scrollMetrics.scrollY / maxScrollDistance, 1)
+    Math.min(scrollMetrics.scrollY / maxScrollDistance, 1),
   );
 
   // Use the REAL rendered track height, not an estimated one
@@ -80,18 +80,14 @@ export default function HomeScreen() {
 
   // Thumb height proportional to visible content, clamped
   const rawThumbHeight =
-    trackHeight > 0
-      ? (safeVisibleHeight / safeContentHeight) * trackHeight
-      : 0;
+    trackHeight > 0 ? (safeVisibleHeight / safeContentHeight) * trackHeight : 0;
 
   const indicatorFillHeight =
-    trackHeight > 0
-      ? Math.max(44, Math.min(rawThumbHeight, trackHeight))
-      : 0;
+    trackHeight > 0 ? Math.max(44, Math.min(rawThumbHeight, trackHeight)) : 0;
 
   const indicatorTravelDistance = Math.max(
     trackHeight - indicatorFillHeight,
-    0
+    0,
   );
 
   const indicatorTranslateY = scrollProgress * indicatorTravelDistance;
@@ -219,7 +215,11 @@ export default function HomeScreen() {
         <View
           style={[
             styles.sectionSeparator,
-            { backgroundColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(17,24,39,0.08)" },
+            {
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.06)"
+                : "rgba(17,24,39,0.08)",
+            },
           ]}
         />
 
@@ -229,23 +229,42 @@ export default function HomeScreen() {
             <ThemedText style={styles.sectionTitle}>Quick Actions</ThemedText>
           </View>
           <View style={styles.quickActionsGrid}>
-            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/report")}>
-              <IconSymbol name="exclamationmark.triangle" size={22} color="#fff" />
+            <Pressable
+              style={styles.quickActionCard}
+              onPress={() => handleQuickAction("/report")}
+            >
+              <IconSymbol
+                name="exclamationmark.triangle"
+                size={22}
+                color="#fff"
+              />
               <ThemedText style={styles.quickActionText}>Report</ThemedText>
             </Pressable>
-            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/map")}>
+            <Pressable
+              style={styles.quickActionCard}
+              onPress={() => handleQuickAction("/map")}
+            >
               <IconSymbol name="location" size={22} color="#fff" />
               <ThemedText style={styles.quickActionText}>Map</ThemedText>
             </Pressable>
-            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/notification")}>
+            <Pressable
+              style={styles.quickActionCard}
+              onPress={() => handleQuickAction("/notification")}
+            >
               <IconSymbol name="bell" size={22} color="#fff" />
               <ThemedText style={styles.quickActionText}>Alerts</ThemedText>
             </Pressable>
-            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/submit-tip")}>
+            <Pressable
+              style={styles.quickActionCard}
+              onPress={() => handleQuickAction("/submit-tip")}
+            >
               <IconSymbol name="paperplane.fill" size={22} color="#fff" />
               <ThemedText style={styles.quickActionText}>Tip</ThemedText>
             </Pressable>
-            <Pressable style={styles.quickActionCard} onPress={() => handleQuickAction("/me")}>
+            <Pressable
+              style={styles.quickActionCard}
+              onPress={() => handleQuickAction("/me")}
+            >
               <IconSymbol name="person" size={22} color="#fff" />
               <ThemedText style={styles.quickActionText}>Profile</ThemedText>
             </Pressable>
@@ -255,7 +274,11 @@ export default function HomeScreen() {
         <View
           style={[
             styles.sectionSeparator,
-            { backgroundColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(17,24,39,0.08)" },
+            {
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.06)"
+                : "rgba(17,24,39,0.08)",
+            },
           ]}
         />
 
@@ -299,7 +322,12 @@ export default function HomeScreen() {
                 ]}
                 onPress={() => handleSystemPress(system.id)}
               >
-                <View style={[styles.systemSummaryIcon, { backgroundColor: system.accent }]}>
+                <View
+                  style={[
+                    styles.systemSummaryIcon,
+                    { backgroundColor: system.accent },
+                  ]}
+                >
                   <IconSymbol size={18} name={system.icon} color="#fff" />
                 </View>
                 <ThemedText style={styles.systemSummaryTitle}>
@@ -316,7 +344,11 @@ export default function HomeScreen() {
         <View
           style={[
             styles.sectionSeparator,
-            { backgroundColor: isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(17,24,39,0.08)" },
+            {
+              backgroundColor: isDarkMode
+                ? "rgba(255,255,255,0.06)"
+                : "rgba(17,24,39,0.08)",
+            },
           ]}
         />
 
@@ -367,9 +399,7 @@ export default function HomeScreen() {
                 style={[
                   styles.systemCard,
                   {
-                    backgroundColor: isDarkMode
-                      ? DARK_CARD_BG
-                      : LIGHT_CARD_BG,
+                    backgroundColor: isDarkMode ? DARK_CARD_BG : LIGHT_CARD_BG,
                     borderColor: isDarkMode ? DARK_BORDER : LIGHT_BORDER,
                   },
                 ]}
@@ -403,7 +433,9 @@ export default function HomeScreen() {
                           { backgroundColor: system.accent },
                         ]}
                       />
-                      <ThemedText style={styles.moduleText}>{module}</ThemedText>
+                      <ThemedText style={styles.moduleText}>
+                        {module}
+                      </ThemedText>
                     </View>
                   ))}
                 </View>
@@ -542,6 +574,8 @@ export default function HomeScreen() {
               id: "general",
               title: "General Support",
               category: "General",
+              status: "Active",
+              icon: "robot",
             },
           } as never)
         }
