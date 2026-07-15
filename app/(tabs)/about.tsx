@@ -1,12 +1,15 @@
+import { Header } from '@/components/header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { StyleSheet, SafeAreaView, ScrollView } from 'react-native';
-import { Header } from '@/components/header';
 import { Colors } from '@/constants/theme';
+import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/context/theme-context';
+import { getTranslation } from '@/data/emergency-translations';
+import { SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
 export default function AboutScreen() {
   const { isDarkMode } = useTheme();
+  const { language } = usePreferences();
 
   return (
     <SafeAreaView style={[styles.containerStyle, { backgroundColor: isDarkMode ? Colors.dark.background : Colors.light.background }]}>
@@ -18,14 +21,14 @@ export default function AboutScreen() {
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle">Version 1.0.0</ThemedText>
           <ThemedText style={styles.description}>
-            This is a modern mobile application built with React Native and Expo.
+            {getTranslation("your_safety_first", language)} - This is a modern mobile application built with React Native and Expo.
           </ThemedText>
         </ThemedView>
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle">Features</ThemedText>
           <ThemedText style={styles.description}>
-            • Clean and intuitive user interface{'\n'}
-            • Light mode with teal color theme{'\n'}
+            • {getTranslation("stay_informed", language)}{'\n'}
+            • {getTranslation("emergency_alert", language)}{'\n'}
             • Cross-platform compatibility
           </ThemedText>
         </ThemedView>

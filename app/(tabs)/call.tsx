@@ -1,25 +1,27 @@
-import React from "react";
-import {
-  Alert,
-  Linking,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
 import { Header } from "@/components/header";
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { useTheme } from "@/context/theme-context";
 import {
-  Colors,
-  DARK_BORDER,
-  DARK_CARD_BG,
-  LIGHT_BORDER,
-  LIGHT_CARD_BG,
-  TealColors,
+    Colors,
+    DARK_BORDER,
+    DARK_CARD_BG,
+    LIGHT_BORDER,
+    LIGHT_CARD_BG,
+    TealColors,
 } from "@/constants/theme";
+import { usePreferences } from "@/context/preferences-context";
+import { useTheme } from "@/context/theme-context";
+import { getTranslation } from "@/data/emergency-translations";
+import React from "react";
+import {
+    Alert,
+    Linking,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    View,
+} from "react-native";
 
 type HotlineCard = {
   id: string;
@@ -160,6 +162,7 @@ function callNumber(phone: string) {
 
 export default function CallScreen() {
   const { isDarkMode } = useTheme();
+  const { language } = usePreferences();
 
   const handleShareLocation = () => {
     Alert.alert(
@@ -196,7 +199,7 @@ export default function CallScreen() {
             <View style={styles.heroText}>
               <ThemedText style={styles.title}>Emergency Help</ThemedText>
               <ThemedText style={styles.subtitle}>
-                Call responders immediately if there is danger to life, injury, fire, crime, or urgent medical need.
+                {getTranslation("report_emergency", language)}: Call responders immediately if there is danger to life, injury, fire, crime, or urgent medical need.
               </ThemedText>
             </View>
           </View>
@@ -208,7 +211,7 @@ export default function CallScreen() {
 
           <Pressable style={styles.secondaryButton} onPress={handleShareLocation}>
             <IconSymbol size={18} name="location.fill" color={TealColors.primary} />
-            <ThemedText style={styles.secondaryButtonText}>Share My Location</ThemedText>
+            <ThemedText style={styles.secondaryButtonText}>{getTranslation("move_to_higher_ground", language)}</ThemedText>
           </Pressable>
         </View>
 
@@ -225,7 +228,7 @@ export default function CallScreen() {
             <IconSymbol size={18} name="location.fill" color={TealColors.primary} />
             <ThemedText style={styles.sectionTitle}>Location Status</ThemedText>
           </View>
-          <ThemedText style={styles.locationText}>Current location detected</ThemedText>
+          <ThemedText style={styles.locationText}>{getTranslation("stay_calm", language)}</ThemedText>
           <ThemedText style={styles.locationText}>
             Nearest response area: Quezon City
           </ThemedText>

@@ -5,6 +5,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/context/theme-context';
+import { getTranslation } from '@/data/emergency-translations';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
@@ -15,12 +16,12 @@ export default function SettingsScreen() {
 
   const languageOptions = [
     { label: "English", value: "en" },
+    { label: "Filipino (Tagalog)", value: "tl" },
+    { label: "Cebuano (Bisaya)", value: "ceb" },
+    { label: "Waray", value: "war" },
+    { label: "Hiligaynon (Ilonggo)", value: "hil" },
     { label: "Español", value: "es" },
     { label: "Français", value: "fr" },
-    { label: "Tagalog", value: "tl" },
-    { label: "Cebuano", value: "ceb" },
-    { label: "Waray", value: "war" },
-    { label: "Hiligaynon", value: "hil" },
   ];
 
   const handleLanguageChange = async (newLanguage: string) => {
@@ -36,9 +37,9 @@ export default function SettingsScreen() {
       <Header />
       <ScrollView style={[styles.content, { backgroundColor: isDarkMode ? Colors.dark.background : Colors.light.background }]}>
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="title">App Settings</ThemedText>
+          <ThemedText type="title">{getTranslation("your_safety_first", language as any)}</ThemedText>
         </ThemedView>
-        
+
         <SettingsSection title="General">
           <SettingsSelect
             label={t("settings.language.label")}
@@ -49,13 +50,13 @@ export default function SettingsScreen() {
             icon="globe"
           />
         </SettingsSection>
-        
+
         <ThemedView style={styles.section}>
-          <ThemedText type="subtitle">Privacy & Security</ThemedText>
+          <ThemedText type="subtitle">{getTranslation("stay_informed", language as any)}</ThemedText>
           <ThemedText style={styles.description}>
-            • Privacy Settings{'\n'}
-            • Data Management{'\n'}
-            • Security Options
+            • {getTranslation("emergency_alert", language as any)}{'\n'}
+            • {getTranslation("help_is_on_the_way", language as any)}{'\n'}
+            • {getTranslation("stay_calm", language as any)}
           </ThemedText>
         </ThemedView>
       </ScrollView>

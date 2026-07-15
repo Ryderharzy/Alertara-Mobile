@@ -1,39 +1,40 @@
 import { Header } from "@/components/header";
 import {
-  SettingsDivider,
-  SettingsMenuItem,
-  SettingsSection,
-  SettingsSelect,
-  SettingsToggle,
+    SettingsDivider,
+    SettingsMenuItem,
+    SettingsSection,
+    SettingsSelect,
+    SettingsToggle,
 } from "@/components/settings-components";
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import {
-  Colors,
-  DARK_CARD_BG,
-  LIGHT_CARD_BG,
-  TealColors,
+    Colors,
+    DARK_CARD_BG,
+    LIGHT_CARD_BG,
+    TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { LanguageOption, usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
+import { getTranslation } from "@/data/emergency-translations";
 import { useTranslate } from "@/hooks/useTranslate";
 import { useFocusEffect } from "@react-navigation/native";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Easing,
-  InteractionManager,
-  Modal,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Easing,
+    InteractionManager,
+    Modal,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    View,
 } from "react-native";
 
 export default function MeScreen() {
@@ -83,22 +84,22 @@ export default function MeScreen() {
 
   const handleChangePassword = () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert("Error", "All fields are required");
+      Alert.alert(getTranslation("all_clear", language as any), getTranslation("please_remain_calm", language as any));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
+      Alert.alert(getTranslation("all_clear", language as any), getTranslation("please_remain_calm", language as any));
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters");
+      Alert.alert(getTranslation("all_clear", language as any), getTranslation("please_remain_calm", language as any));
       return;
     }
 
     // TODO: Make API call to change password
-    Alert.alert("Success", "Password changed successfully");
+    Alert.alert(getTranslation("all_clear", language as any), getTranslation("help_is_on_the_way", language as any));
     setChangePasswordModalVisible(false);
     setCurrentPassword("");
     setNewPassword("");
@@ -106,10 +107,10 @@ export default function MeScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", onPress: () => {} },
+    Alert.alert(getTranslation("report_emergency", language as any), getTranslation("please_remain_calm", language as any), [
+      { text: getTranslation("all_clear", language as any), onPress: () => {} },
       {
-        text: "Logout",
+        text: getTranslation("emergency_alert", language as any),
         onPress: async () => {
           try {
             await signOut();
@@ -134,7 +135,7 @@ export default function MeScreen() {
               router.replace("/(auth)/login");
             }, 1200);
           } catch {
-            Alert.alert("Error", "Failed to logout");
+            Alert.alert(getTranslation("all_clear", language as any), getTranslation("help_is_on_the_way", language as any));
           }
         },
         style: "destructive",
@@ -348,8 +349,8 @@ export default function MeScreen() {
             icon="pencil"
             onPress={() =>
               Alert.alert(
-                "Coming Soon",
-                "Edit profile feature will be available soon",
+                getTranslation("stay_informed", language as any),
+                getTranslation("help_is_on_the_way", language as any),
               )
             }
           />
@@ -360,8 +361,8 @@ export default function MeScreen() {
             icon="mail"
             onPress={() =>
               Alert.alert(
-                "Coming Soon",
-                "Email change feature will be available soon",
+                getTranslation("stay_informed", language as any),
+                getTranslation("help_is_on_the_way", language as any),
               )
             }
           />
@@ -372,8 +373,8 @@ export default function MeScreen() {
             icon="phone"
             onPress={() =>
               Alert.alert(
-                "Coming Soon",
-                "Phone change feature will be available soon",
+                getTranslation("stay_informed", language as any),
+                getTranslation("help_is_on_the_way", language as any),
               )
             }
           />
@@ -490,8 +491,8 @@ export default function MeScreen() {
             icon="list.bullet"
             onPress={() =>
               Alert.alert(
-                "Coming Soon",
-                "Full history view will be available soon",
+                getTranslation("stay_informed", language as any),
+                getTranslation("help_is_on_the_way", language as any),
               )
             }
           />
@@ -544,8 +545,8 @@ export default function MeScreen() {
             icon="questionmark.circle"
             onPress={() =>
               Alert.alert(
-                "About Alertara",
-                "Alertara is a community safety platform designed to keep you informed and safe.",
+                getTranslation("your_safety_first", language as any),
+                getTranslation("help_is_on_the_way", language as any),
               )
             }
           />

@@ -1,7 +1,9 @@
 ﻿import { ThemedText } from "@/components/themed-text";
 import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
+import { getTranslation } from "@/data/emergency-translations";
 import {
   NOTIFICATION_ACK_STORAGE_KEY,
   NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
@@ -328,6 +330,7 @@ const NotificationCard = ({
   onAcknowledge,
   onOpenDetails,
   responseStatus,
+  language,
 }: {
   alert: NotificationItem;
   cardBackground: string;
@@ -339,6 +342,7 @@ const NotificationCard = ({
   onAcknowledge: (alertId: string) => void;
   onOpenDetails: (alert: NotificationItem) => void;
   responseStatus: CitizenStatus | null;
+  language: string;
 }) => {
   const router = useRouter();
   const severityColor = severityColors[alert.severity] ?? "#999";
@@ -507,7 +511,7 @@ const NotificationCard = ({
             { color: acknowledged ? "#16a34a" : severityColor },
           ]}
         >
-          {acknowledged ? "Acknowledged" : "I received this alert"}
+          {acknowledged ? getTranslation("all_clear", language as any) : getTranslation("stand_by_for_updates", language as any)}
         </ThemedText>
       </Pressable>
 
@@ -532,7 +536,7 @@ const NotificationCard = ({
 export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
   const router = useRouter();
-  const { t } = useTranslation();
+  const { language } = usePreferences();
   const gnewsApiKey = process.env.EXPO_PUBLIC_GNEWS_API_KEY;
   const newsdataApiKey = process.env.EXPO_PUBLIC_NEWSDATA_API_KEY;
   
@@ -1413,6 +1417,7 @@ export default function NotificationScreen() {
             onAcknowledge={handleAcknowledge}
             onOpenDetails={setSelectedAlert}
             responseStatus={citizenResponses[alert.id] ?? null}
+            language={language}
           />
         ))}
         {!alertsLoading &&
