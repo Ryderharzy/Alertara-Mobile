@@ -532,6 +532,7 @@ const NotificationCard = ({
 export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
   const gnewsApiKey = process.env.EXPO_PUBLIC_GNEWS_API_KEY;
   const newsdataApiKey = process.env.EXPO_PUBLIC_NEWSDATA_API_KEY;
   

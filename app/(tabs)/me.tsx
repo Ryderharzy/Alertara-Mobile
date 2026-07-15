@@ -75,7 +75,10 @@ export default function MeScreen() {
     en: t("language.english", "English"),
     es: t("language.spanish", "Español"),
     fr: t("language.french", "Français"),
-    tl: t("language.tagalog", "Tagalog"),
+    tl: t("language.tagalog", "Filipino (Tagalog)"),
+    ceb: t("language.cebuano", "Cebuano (Bisaya)"),
+    war: t("language.waray", "Waray"),
+    hil: t("language.hiligaynon", "Hiligaynon (Ilonggo)"),
   };
 
   const handleChangePassword = () => {
@@ -445,6 +448,9 @@ export default function MeScreen() {
                 { label: languageLabels.es, value: "es" },
                 { label: languageLabels.fr, value: "fr" },
                 { label: languageLabels.tl, value: "tl" },
+                { label: languageLabels.ceb, value: "ceb" },
+                { label: languageLabels.war, value: "war" },
+                { label: languageLabels.hil, value: "hil" },
               ]}
               onSelect={handleLanguageSelect}
             />
