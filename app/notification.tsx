@@ -24,6 +24,10 @@ import {
   View,
 } from "react-native";
 
+const LOCAL_NEWS_CACHE_KEY = "@alertara_local_news_cache";
+const HEALTH_NEWS_CACHE_KEY = "@alertara_health_news_cache";
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes in milliseconds
+
 if (
   Platform.OS === "android" &&
   UIManager.setLayoutAnimationEnabledExperimental
@@ -91,7 +95,11 @@ const severityMap: Record<string, "HIGH" | "MEDIUM" | "LOW"> = {
 
 const categoryIconMap: Record<string, IconSymbolName> = {
   weather: "cloud.sun",
+  "weather forecast": "cloud.sun",
+  forecast: "cloud.sun",
   earthquake: "flame",
+  quake: "flame",
+  seismic: "flame",
   fire: "flame",
   emergency: "shield",
   alert: "exclamationmark.triangle",
@@ -103,6 +111,22 @@ const categoryIconMap: Record<string, IconSymbolName> = {
   traffic: "car.side",
   reminder: "clock",
   announcement: "megaphone",
+  announcements: "megaphone",
+  update: "megaphone",
+  notice: "info.circle",
+  information: "info.circle",
+  safety: "shield",
+  health: "heart",
+  medical: "heart",
+  crime: "shield",
+  security: "shield",
+  evacuation: "figure.walk",
+  shelter: "house",
+  road: "car.side",
+  transportation: "car.side",
+  utility: "bolt",
+  power: "bolt",
+  water: "drop",
 };
 
 function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
@@ -123,7 +147,7 @@ function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
     alert.content?.trim() || alert.message?.trim() || "No details available.";
   const area = alert.area?.trim();
 
-  return {
+  const mappedItem = {
     id: String(alert.id),
     icon,
     category: alert.category?.trim() || "General",
@@ -136,6 +160,9 @@ function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
     actions: alert.message?.trim() ? [alert.message.trim()] : [body],
     source: alert.source?.trim() || "Alertara",
   };
+
+  console.log(`🔄 Mapped alert "${mappedItem.title}" to category "${mappedItem.category}" with icon "${mappedItem.icon}"`);
+  return mappedItem;
 }
 
 const timeFilters = [
@@ -146,23 +173,100 @@ const timeFilters = [
   "A Year Ago",
 ];
 
+async function fetchFromNewsDataAPI(
+  query: string,
+  apiKey: string | undefined,
+): Promise<GNewsArticle[]> {
+  if (!apiKey) {
+    console.error("❌ NewsData API key is missing");
+    throw new Error("Missing NewsData API key.");
+  }
+
+  const params = new URLSearchParams({
+    q: query,
+    language: "en",
+    apikey: apiKey,
+  });
+
+  const url = `https://newsdata.io/api/1/news?${params.toString()}`;
+  console.log("🔄 Falling back to NewsData API:", url);
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ NewsData API request failed:", response.status, errorText);
+    throw new Error(errorText || `NewsData request failed (${response.status})`);
+  }
+
+  const data = (await response.json()) as { results?: Array<{ title?: string; description?: string; content?: string; link?: string; pubDate?: string; source_id?: string }> };
+  const results = Array.isArray(data.results) ? data.results : [];
+  console.log(`📊 NewsData returned ${results.length} results`);
+
+  return results.map((result) => ({
+    title: result.title,
+    description: result.description,
+    content: result.content,
+    url: result.link,
+    publishedAt: result.pubDate,
+    source: result.source_id ? { name: result.source_id } : undefined,
+  }));
+}
+
 const searchAliases: Record<string, string[]> = {
-  typhoon: ["weather", "storm", "rain", "flood", "wind", "severe weather"],
-  hurricane: ["weather", "storm", "rain", "flood", "wind", "severe weather"],
-  storm: ["weather", "rain", "wind", "flood", "severe weather"],
-  flood: ["flood", "water", "rain", "weather", "evacuation"],
-  earthquake: ["earthquake", "quake", "seismic", "phivolcs"],
-  quake: ["earthquake", "quake", "seismic", "phivolcs"],
-  fire: ["fire", "smoke", "bfp", "burning"],
-  smoke: ["fire", "smoke", "bfp", "burning"],
-  accident: ["crash", "collision", "road", "traffic", "incident"],
-  crash: ["crash", "collision", "road", "traffic", "incident"],
-  collision: ["crash", "collision", "road", "traffic", "incident"],
-  alert: ["alert", "warning", "emergency", "broadcast"],
-  warning: ["alert", "warning", "emergency", "broadcast"],
-  news: ["news", "announcement", "general", "update"],
-  reminder: ["reminder", "task", "notice"],
-  general: ["general", "announcement", "update"],
+  typhoon: ["weather", "storm", "rain", "flood", "wind", "severe weather", "weather forecast", "cyclone", "pagasa"],
+  hurricane: ["weather", "storm", "rain", "flood", "wind", "severe weather", "weather forecast", "cyclone"],
+  storm: ["weather", "rain", "wind", "flood", "severe weather", "weather forecast", "thunderstorm"],
+  flood: ["flood", "water", "rain", "weather", "evacuation", "flash flood", "rising water"],
+  earthquake: ["earthquake", "quake", "seismic", "phivolcs", "tremor", "aftershock", "magnitude"],
+  quake: ["earthquake", "quake", "seismic", "phivolcs", "tremor", "aftershock"],
+  fire: ["fire", "smoke", "bfp", "burning", "blaze", "wildfire", "inferno"],
+  smoke: ["fire", "smoke", "bfp", "burning", "haze"],
+  accident: ["crash", "collision", "road", "traffic", "incident", "mva", "vehicle"],
+  crash: ["crash", "collision", "road", "traffic", "incident", "mva", "vehicle"],
+  collision: ["crash", "collision", "road", "traffic", "incident", "mva"],
+  alert: ["alert", "warning", "emergency", "broadcast", "advisory", "notice"],
+  warning: ["alert", "warning", "emergency", "broadcast", "advisory"],
+  news: ["news", "announcement", "general", "update", "report", "breaking"],
+  reminder: ["reminder", "task", "notice", "memo", "notification"],
+  general: ["general", "announcement", "update", "information", "info"],
+  announcement: ["announcement", "announcements", "update", "notice", "general", "broadcast"],
+  weather: ["weather", "weather forecast", "forecast", "storm", "rain", "temperature", "climate"],
+  forecast: ["weather", "weather forecast", "forecast", "prediction"],
+  information: ["information", "info", "general", "notice", "details"],
+  safety: ["safety", "security", "emergency", "protection", "hazard"],
+  health: ["health", "medical", "safety", "wellness", "disease", "hospital", "clinic"],
+  medical: ["medical", "health", "emergency", "doctor", "medicine", "treatment"],
+  crime: ["crime", "security", "safety", "theft", "robbery", "assault"],
+  security: ["security", "crime", "safety", "protection", "police"],
+  evacuation: ["evacuation", "shelter", "emergency", "safe zone", "relocation"],
+  shelter: ["shelter", "evacuation", "safety", "refuge", "safe house"],
+  help: ["help", "assistance", "support", "aid", "rescue", "sos"],
+  rescue: ["rescue", "help", "assistance", "emergency", "saved"],
+  emergency: ["emergency", "urgent", "critical", "crisis", "disaster", "help"],
+  disaster: ["disaster", "emergency", "crisis", "catastrophe", "calamity"],
+  urgent: ["urgent", "emergency", "critical", "immediate", "asap"],
+  critical: ["critical", "urgent", "emergency", "severe", "serious"],
+  quezon: ["quezon city", "quezon", "qc", "metro manila", "philippines"],
+  manila: ["manila", "metro manila", "ncr", "philippines"],
+  philippines: ["philippines", "ph", "pinas", "country"],
+  covid: ["covid", "covid-19", "coronavirus", "pandemic", "virus"],
+  virus: ["virus", "covid", "coronavirus", "disease", "infection"],
+  pandemic: ["pandemic", "covid", "coronavirus", "epidemic", "outbreak"],
+  power: ["power", "electricity", "outage", "brownout", "blackout", "meralco"],
+  water: ["water", "flood", "supply", "maynilad", "shortage"],
+  traffic: ["traffic", "road", "congestion", "jam", "heavy", "mmda"],
+  road: ["road", "traffic", "street", "highway", "avenue"],
+  hospital: ["hospital", "health", "medical", "clinic", "emergency room"],
+  clinic: ["clinic", "health", "medical", "hospital", "doctor"],
+  doctor: ["doctor", "medical", "health", "physician", "md"],
+  police: ["police", "security", "crime", "pnp", "law enforcement"],
+  bfp: ["bfp", "fire", "firefighter", "burning", "blaze"],
+  pagasa: ["pagasa", "weather", "storm", "typhoon", "forecast", "rain"],
+  mmda: ["mmda", "traffic", "road", "metro manila", "ncr"],
+  meralco: ["meralco", "power", "electricity", "outage", "brownout"],
+  maynilad: ["maynilad", "water", "supply", "utility"],
+  lgu: ["lgu", "local government", "city hall", "municipality", "barangay"],
+  barangay: ["barangay", "lgu", "local", "community", "village"],
 };
 
 function normalizeSearchValue(value: string) {
@@ -429,6 +533,14 @@ export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
   const router = useRouter();
   const gnewsApiKey = process.env.EXPO_PUBLIC_GNEWS_API_KEY;
+  const newsdataApiKey = process.env.EXPO_PUBLIC_NEWSDATA_API_KEY;
+  
+  // Debug: Log API keys on mount
+  console.log("🔑 Environment variables loaded:");
+  console.log("🔑 GNews API key exists:", !!gnewsApiKey);
+  console.log("🔑 GNews API key length:", gnewsApiKey?.length || 0);
+  console.log("🔑 NewsData API key exists:", !!newsdataApiKey);
+  console.log("🔑 NewsData API key length:", newsdataApiKey?.length || 0);
   const screenBackground = isDarkMode ? "#0f1c1f" : "#f2efe8";
   const cardBackground = isDarkMode ? "#18252a" : "#ffffff";
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
@@ -448,6 +560,9 @@ export default function NotificationScreen() {
   const [localNewsItems, setLocalNewsItems] = useState<NotificationItem[]>([]);
   const [localNewsLoading, setLocalNewsLoading] = useState(false);
   const [localNewsError, setLocalNewsError] = useState("");
+  const [healthNewsItems, setHealthNewsItems] = useState<NotificationItem[]>([]);
+  const [healthNewsLoading, setHealthNewsLoading] = useState(false);
+  const [healthNewsError, setHealthNewsError] = useState("");
   const [acknowledgedIds, setAcknowledgedIds] = useState<string[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<NotificationItem | null>(
     null,
@@ -468,24 +583,25 @@ export default function NotificationScreen() {
     outputRange: [-60, 0],
   });
   const allNotifications = useMemo(
-    () => [...backendAlerts, ...localNewsItems],
-    [backendAlerts, localNewsItems],
+    () => [...backendAlerts, ...localNewsItems, ...healthNewsItems],
+    [backendAlerts, localNewsItems, healthNewsItems],
   );
   const categoryTabs = useMemo(() => {
-    const categories = new Map<string, IconSymbolName>();
-    backendAlerts.forEach((alert) => {
-      const category = alert.category || "General";
-      if (!categories.has(category)) {
-        categories.set(category, getCategoryIcon(category));
-      }
-    });
-
-    return [
+    const fixedTabs = [
       { key: "All Alerts", icon: "bell" as IconSymbolName },
-      ...Array.from(categories.entries()).map(([key, icon]) => ({ key, icon })),
+      { key: "Announcement", icon: "megaphone" as IconSymbolName },
+      { key: "General", icon: "info.circle" as IconSymbolName },
+      { key: "Weather Forecast", icon: "cloud.sun" as IconSymbolName },
+      { key: "Emergency", icon: "shield" as IconSymbolName },
+      { key: "Safety", icon: "shield" as IconSymbolName },
+      { key: "Health", icon: "heart" as IconSymbolName },
+      { key: "Traffic", icon: "car.side" as IconSymbolName },
       { key: "Local News", icon: "newspaper" as IconSymbolName },
     ];
-  }, [backendAlerts]);
+    
+    console.log("🏷️ Fixed category tabs:", fixedTabs.map(t => t.key));
+    return fixedTabs;
+  }, []);
   const selectedCategoryItems = useMemo(() => {
     if (selectedCategory === "All Alerts") {
       return allNotifications;
@@ -495,10 +611,37 @@ export default function NotificationScreen() {
       return localNewsItems;
     }
 
-    return backendAlerts.filter(
-      (alert) => (alert.category || "General") === selectedCategory,
-    );
-  }, [allNotifications, backendAlerts, localNewsItems, selectedCategory]);
+    if (selectedCategory === "Health") {
+      // Combine backend health alerts with health news
+      const healthKeywords = ["health", "medical"];
+      const backendHealthItems = backendAlerts.filter((alert) => {
+        const alertCategory = (alert.category || "").toLowerCase();
+        return healthKeywords.some(keyword => alertCategory.includes(keyword));
+      });
+      console.log(`🏥 Health tab: ${backendHealthItems.length} backend items, ${healthNewsItems.length} news items`);
+      return [...backendHealthItems, ...healthNewsItems];
+    }
+
+    // Map API categories to fixed tabs with case-insensitive matching
+    const categoryMapping: Record<string, string[]> = {
+      "Announcement": ["announcement", "announcements", "update", "notice"],
+      "General": ["general", "information", "info"],
+      "Weather Forecast": ["weather", "weather forecast", "forecast", "storm"],
+      "Emergency": ["emergency", "alert", "warning"],
+      "Safety": ["safety", "security", "crime"],
+      "Traffic": ["traffic", "road", "accident", "collision"],
+    };
+
+    const keywords = categoryMapping[selectedCategory] || [selectedCategory.toLowerCase()];
+    
+    const filtered = backendAlerts.filter((alert) => {
+      const alertCategory = (alert.category || "").toLowerCase();
+      return keywords.some(keyword => alertCategory.includes(keyword));
+    });
+    
+    console.log(`🔍 Filtered ${filtered.length} items for category "${selectedCategory}" using keywords:`, keywords);
+    return filtered;
+  }, [allNotifications, backendAlerts, localNewsItems, healthNewsItems, selectedCategory]);
 
   const visibleNotifications = useMemo(() => {
     const normalizedSearch = normalizeSearchValue(searchQuery);
@@ -514,14 +657,25 @@ export default function NotificationScreen() {
 
   const categoryUnreadCounts = useMemo(() => {
     return categoryTabs.reduce<Record<string, number>>((counts, category) => {
-      const categoryItems =
-        category.key === "All Alerts"
-          ? allNotifications
-          : category.key === "Local News"
-            ? localNewsItems
-            : backendAlerts.filter(
-                (alert) => (alert.category || "General") === category.key,
-              );
+      let categoryItems: NotificationItem[] = [];
+      
+      if (category.key === "All Alerts") {
+        categoryItems = allNotifications;
+      } else if (category.key === "Local News") {
+        categoryItems = localNewsItems;
+      } else if (category.key === "Health") {
+        const healthKeywords = ["health", "medical"];
+        const backendHealthItems = backendAlerts.filter((alert) => {
+          const alertCategory = (alert.category || "").toLowerCase();
+          return healthKeywords.some(keyword => alertCategory.includes(keyword));
+        });
+        categoryItems = [...backendHealthItems, ...healthNewsItems];
+      } else {
+        categoryItems = backendAlerts.filter(
+          (alert) => (alert.category || "General") === category.key,
+        );
+      }
+      
       counts[category.key] = categoryItems.filter(
         (alert) => !acknowledgedIds.includes(alert.id),
       ).length;
@@ -533,6 +687,7 @@ export default function NotificationScreen() {
     backendAlerts,
     categoryTabs,
     localNewsItems,
+    healthNewsItems,
   ]);
 
   useEffect(() => {
@@ -577,30 +732,66 @@ export default function NotificationScreen() {
     let active = true;
 
     const loadBackendAlerts = async () => {
+      console.log("🔔 Starting to load backend alerts...");
       setAlertsLoading(true);
       setAlertsError("");
 
       try {
-        const response = await apiClient.get("/alerts");
-        const rows = Array.isArray(response.data)
-          ? (response.data as AlertApiRow[])
-          : Array.isArray(response.data?.data)
-            ? (response.data.data as AlertApiRow[])
-            : [];
+        console.log("📡 Making API call to / endpoint");
+        const response = await apiClient.get("/");
+        console.log("✅ API call successful, processing response...");
+        console.log("📄 Raw response data:", response.data);
+
+        // Handle different response structures
+        let rows: AlertApiRow[] = [];
+        
+        if (Array.isArray(response.data)) {
+          rows = response.data as AlertApiRow[];
+          console.log("📋 Response is direct array");
+        } else if (Array.isArray(response.data?.data)) {
+          rows = response.data.data as AlertApiRow[];
+          console.log("📋 Response has data array");
+        } else if (response.data?.alerts && Array.isArray(response.data.alerts)) {
+          rows = response.data.alerts as AlertApiRow[];
+          console.log("📋 Response has alerts array");
+        } else if (typeof response.data === 'object' && response.data !== null) {
+          // Try to find any array in the response
+          const arrayKey = Object.keys(response.data).find(key => Array.isArray(response.data[key]));
+          if (arrayKey) {
+            rows = response.data[arrayKey] as AlertApiRow[];
+            console.log(`📋 Found array in response.${arrayKey}`);
+          }
+        }
+
+        console.log(`📊 Parsed ${rows.length} alert rows from response`);
+        
+        if (rows.length > 0) {
+          console.log("🔍 Sample alert structure:", rows[0]);
+        }
 
         if (!active) {
+          console.log("⚠️ Component unmounted, skipping state update");
           return;
         }
 
-        setBackendAlerts(rows.map(mapAlertToNotificationItem));
+        const mappedAlerts = rows.map(mapAlertToNotificationItem);
+        console.log(`🔄 Mapped ${mappedAlerts.length} alerts to notification items`);
+        
+        // Log categories found
+        const categories = [...new Set(mappedAlerts.map(alert => alert.category))];
+        console.log("📑 Categories found:", categories);
+        
+        setBackendAlerts(mappedAlerts);
       } catch (error) {
+        console.error("❌ Failed to load backend alerts:", error);
         if (active) {
-          setAlertsError(
-            error instanceof Error ? error.message : "Failed to load alerts.",
-          );
+          const errorMessage = error instanceof Error ? error.message : "Failed to load alerts.";
+          console.error(`📝 Setting error message: ${errorMessage}`);
+          setAlertsError(errorMessage);
         }
       } finally {
         if (active) {
+          console.log("✅ Alert loading completed");
           setAlertsLoading(false);
         }
       }
@@ -609,71 +800,130 @@ export default function NotificationScreen() {
     loadBackendAlerts();
 
     const loadLocalNews = async () => {
-      if (!gnewsApiKey) {
-        setLocalNewsError("Missing GNews API key.");
-        return;
-      }
-
+      console.log("📰 Starting loadLocalNews...");
       setLocalNewsLoading(true);
       setLocalNewsError("");
 
       try {
-        const params = new URLSearchParams({
-          q: '"Quezon City" OR "Metro Manila" OR Philippines',
-          lang: "en",
-          max: "6",
-          sortby: "publishedAt",
-          nullable: "description,content",
-          apikey: gnewsApiKey,
-        });
-        const url = `https://gnews.io/api/v4/search?${params.toString()}`;
-        const response = await fetch(url);
+        // Try to load from cache first
+        const cachedData = await AsyncStorage.getItem(LOCAL_NEWS_CACHE_KEY);
+        if (cachedData) {
+          const { data, timestamp } = JSON.parse(cachedData) as { data: NotificationItem[], timestamp: number };
+          const cacheAge = Date.now() - timestamp;
+          
+          if (cacheAge < CACHE_DURATION) {
+            console.log("📰 Using cached local news (age:", Math.floor(cacheAge / 1000), "seconds)");
+            if (active) {
+              setLocalNewsItems(data);
+              setLocalNewsLoading(false);
+            }
+            // Still fetch fresh data in background
+          } else {
+            console.log("📰 Cache expired, fetching fresh local news");
+          }
+        }
+      } catch (cacheError) {
+        console.error("❌ Cache read error:", cacheError);
+      }
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            errorText || `GNews request failed (${response.status})`,
-          );
+      try {
+        let articles: GNewsArticle[] = [];
+        let sourceName = "Unknown";
+
+        // Try GNews first if API key is available
+        if (gnewsApiKey) {
+          try {
+            const params = new URLSearchParams({
+              q: 'Philippines',
+              lang: "en",
+              max: "6",
+              sortby: "publishedAt",
+              nullable: "description,content",
+              apikey: gnewsApiKey,
+            });
+            const url = `https://gnews.io/api/v4/search?${params.toString()}`;
+            console.log("📰 Loading local news from GNews:", url);
+            const response = await fetch(url);
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(
+                errorText || `GNews request failed (${response.status})`,
+              );
+            }
+
+            const data = (await response.json()) as { articles?: GNewsArticle[] };
+            articles = Array.isArray(data.articles) ? data.articles : [];
+            sourceName = "GNews";
+            console.log(`📰 Loaded ${articles.length} local news articles from GNews`);
+          } catch (gnewsError) {
+            console.log("⚠️ GNews failed, falling back to NewsData:", gnewsError);
+            // Fall through to NewsData below
+          }
         }
 
-        const data = (await response.json()) as { articles?: GNewsArticle[] };
-        const articles = Array.isArray(data.articles) ? data.articles : [];
+        // Fallback to NewsData if GNews failed or no key
+        if (articles.length === 0) {
+          articles = await fetchFromNewsDataAPI(
+            'Philippines',
+            newsdataApiKey
+          );
+          sourceName = "NewsData";
+          console.log(`📰 Loaded ${articles.length} local news articles from NewsData`);
+        }
 
         if (!active) {
           return;
         }
 
-        setLocalNewsItems(
-          articles.map((article, index) => ({
-            id: `local-news-${index}-${article.url ?? article.title ?? "article"}`,
-            category: "Local News",
-            icon: "newspaper",
-            title: article.title?.trim() || "Local News Update",
-            type: "GNews Story",
-            alertType: "Type: Local News",
-            severity: "LOW",
-            timestamp: article.publishedAt
-              ? new Date(article.publishedAt).toLocaleString()
-              : "Recently",
-            description:
-              article.description?.trim() ||
-              article.content?.trim() ||
-              "Tap to read the full story.",
-            actions: [
-              article.source?.name
-                ? `Source: ${article.source.name}`
-                : "Source: GNews",
-            ],
-            source: article.source?.name || "GNews",
-          })),
-        );
+        const mappedNews = articles.map((article, index) => ({
+          id: `local-news-${index}-${article.url ?? article.title ?? "article"}`,
+          category: "Local News",
+          icon: "newspaper" as IconSymbolName,
+          title: article.title?.trim() || "Local News Update",
+          type: sourceName === "GNews" ? "GNews Story" : "NewsData Story",
+          alertType: "Type: Local News",
+          severity: "LOW" as "HIGH" | "MEDIUM" | "LOW",
+          timestamp: article.publishedAt
+            ? new Date(article.publishedAt).toLocaleString()
+            : "Recently",
+          description:
+            article.description?.trim() ||
+            article.content?.trim() ||
+            "Tap to read the full story.",
+          actions: [
+            article.source?.name
+              ? `Source: ${article.source.name}`
+              : `Source: ${sourceName}`,
+          ],
+          source: article.source?.name || sourceName,
+        }));
+
+        setLocalNewsItems(mappedNews);
+        
+        // Save to cache
+        try {
+          await AsyncStorage.setItem(
+            LOCAL_NEWS_CACHE_KEY,
+            JSON.stringify({
+              data: mappedNews,
+              timestamp: Date.now(),
+            })
+          );
+          console.log("💾 Local news cached successfully");
+        } catch (cacheError) {
+          console.error("❌ Cache write error:", cacheError);
+        }
+        
+        // Load health news after local news to avoid rate limiting
+        if (active) {
+          setTimeout(() => loadHealthNews(), 2000); // 2 second delay
+        }
       } catch (error) {
         if (active) {
-          setLocalNewsError(
-            error instanceof Error
-              ? error.message
-              : "Failed to load local news.",
-          );
+          console.error("❌ Failed to load local news:", error);
+          const errorMessage = error instanceof Error ? error.message : "Failed to load local news.";
+          setLocalNewsError(errorMessage);
         }
       } finally {
         if (active) {
@@ -684,10 +934,141 @@ export default function NotificationScreen() {
 
     loadLocalNews();
 
+    const loadHealthNews = async () => {
+      console.log("🏥 Starting loadHealthNews...");
+      console.log("🏥 GNews API key available:", !!gnewsApiKey);
+      console.log("🏥 NewsData API key available:", !!newsdataApiKey);
+      setHealthNewsLoading(true);
+      setHealthNewsError("");
+
+      try {
+        // Try to load from cache first
+        const cachedData = await AsyncStorage.getItem(HEALTH_NEWS_CACHE_KEY);
+        if (cachedData) {
+          const { data, timestamp } = JSON.parse(cachedData) as { data: NotificationItem[], timestamp: number };
+          const cacheAge = Date.now() - timestamp;
+          
+          if (cacheAge < CACHE_DURATION) {
+            console.log("🏥 Using cached health news (age:", Math.floor(cacheAge / 1000), "seconds)");
+            if (active) {
+              setHealthNewsItems(data);
+              setHealthNewsLoading(false);
+            }
+            // Still fetch fresh data in background
+          } else {
+            console.log("🏥 Cache expired, fetching fresh health news");
+          }
+        }
+      } catch (cacheError) {
+        console.error("❌ Health cache read error:", cacheError);
+      }
+
+      try {
+        let articles: GNewsArticle[] = [];
+        let sourceName = "Unknown";
+
+        // Try GNews first if API key is available
+        if (gnewsApiKey) {
+          try {
+            const params = new URLSearchParams({
+              q: 'health',
+              lang: "en",
+              max: "6",
+              sortby: "publishedAt",
+              nullable: "description,content",
+              apikey: gnewsApiKey,
+            });
+            const url = `https://gnews.io/api/v4/search?${params.toString()}`;
+            console.log("🏥 Loading health news from GNews:", url);
+            const response = await fetch(url);
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(
+                errorText || `GNews health request failed (${response.status})`,
+              );
+            }
+
+            const data = (await response.json()) as { articles?: GNewsArticle[] };
+            articles = Array.isArray(data.articles) ? data.articles : [];
+            sourceName = "GNews";
+            console.log(`🏥 Loaded ${articles.length} health news articles from GNews`);
+          } catch (gnewsError) {
+            console.log("⚠️ GNews failed, falling back to NewsData:", gnewsError);
+            // Fall through to NewsData below
+          }
+        }
+
+        // Fallback to NewsData if GNews failed or no key
+        if (articles.length === 0) {
+          articles = await fetchFromNewsDataAPI(
+            'health',
+            newsdataApiKey
+          );
+          sourceName = "NewsData";
+          console.log(`🏥 Loaded ${articles.length} health news articles from NewsData`);
+        }
+
+        if (!active) {
+          return;
+        }
+
+        const mappedHealthNews = articles.map((article, index) => ({
+          id: `health-news-${index}-${article.url ?? article.title ?? "article"}`,
+          category: "Health",
+          icon: "heart" as IconSymbolName,
+          title: article.title?.trim() || "Health News Update",
+          type: sourceName === "GNews" ? "Health News" : "NewsData Health",
+          alertType: "Type: Health News",
+          severity: "LOW" as "HIGH" | "MEDIUM" | "LOW",
+          timestamp: article.publishedAt
+            ? new Date(article.publishedAt).toLocaleString()
+            : "Recently",
+          description:
+            article.description?.trim() ||
+            article.content?.trim() ||
+            "Tap to read the full health story.",
+          actions: [
+            article.source?.name
+              ? `Source: ${article.source.name}`
+              : `Source: ${sourceName}`,
+          ],
+          source: article.source?.name || sourceName,
+        }));
+
+        setHealthNewsItems(mappedHealthNews);
+        console.log(`🏥 Set ${mappedHealthNews.length} health news items to state`);
+        
+        // Save to cache
+        try {
+          await AsyncStorage.setItem(
+            HEALTH_NEWS_CACHE_KEY,
+            JSON.stringify({
+              data: mappedHealthNews,
+              timestamp: Date.now(),
+            })
+          );
+          console.log("💾 Health news cached successfully");
+        } catch (cacheError) {
+          console.error("❌ Health cache write error:", cacheError);
+        }
+      } catch (error) {
+        if (active) {
+          console.error("❌ Failed to load health news:", error);
+          const errorMessage = error instanceof Error ? error.message : "Failed to load health news.";
+          setHealthNewsError(errorMessage);
+        }
+      } finally {
+        if (active) {
+          setHealthNewsLoading(false);
+        }
+      }
+    };
+
     return () => {
       active = false;
     };
-  }, [gnewsApiKey]);
+  }, [gnewsApiKey, newsdataApiKey]);
 
   const handleGeneralChat = () =>
     router.push({
@@ -929,7 +1310,7 @@ export default function NotificationScreen() {
             ))}
           </ScrollView>
 
-          {(alertsLoading || localNewsLoading) && (
+          {(alertsLoading || localNewsLoading || healthNewsLoading) && (
             <View style={styles.statusCard}>
               <ThemedText style={[styles.statusText, { color: textColor }]}>
                 Loading alerts...
@@ -1035,6 +1416,7 @@ export default function NotificationScreen() {
         ))}
         {!alertsLoading &&
           !localNewsLoading &&
+          !healthNewsLoading &&
           visibleNotifications.length === 0 && (
             <View style={styles.statusCard}>
               <ThemedText style={[styles.statusText, { color: textColor }]}>
@@ -1049,10 +1431,24 @@ export default function NotificationScreen() {
             </ThemedText>
           </View>
         )}
+        {selectedCategory === "Health" && healthNewsLoading && (
+          <View style={styles.statusCard}>
+            <ThemedText style={[styles.statusText, { color: textColor }]}>
+              Loading health news...
+            </ThemedText>
+          </View>
+        )}
         {selectedCategory === "Local News" && localNewsError ? (
           <View style={styles.statusCard}>
             <ThemedText style={[styles.statusText, { color: textColor }]}>
               {localNewsError}
+            </ThemedText>
+          </View>
+        ) : null}
+        {selectedCategory === "Health" && healthNewsError ? (
+          <View style={styles.statusCard}>
+            <ThemedText style={[styles.statusText, { color: textColor }]}>
+              {healthNewsError}
             </ThemedText>
           </View>
         ) : null}
