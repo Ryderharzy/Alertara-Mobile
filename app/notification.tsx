@@ -1,6 +1,7 @@
 ﻿import { ThemedText } from "@/components/themed-text";
 import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
 import { getTranslation } from "@/data/emergency-translations";
@@ -8,6 +9,7 @@ import {
   NOTIFICATION_ACK_STORAGE_KEY,
   NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
 } from "@/data/notification-center";
+import { alertAcknowledgmentService } from "@/services/api/alert-acknowledgment-service";
 import { apiClient } from "@/services/api/api-config";
 import { FontAwesome, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -537,6 +539,7 @@ export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
   const router = useRouter();
   const { language } = usePreferences();
+  const { userProfile } = useAuth();
   const gnewsApiKey = process.env.EXPO_PUBLIC_GNEWS_API_KEY;
   const newsdataApiKey = process.env.EXPO_PUBLIC_NEWSDATA_API_KEY;
   
@@ -1091,6 +1094,21 @@ export default function NotificationScreen() {
     setAcknowledgedIds((current) =>
       current.includes(alertId) ? current : [...current, alertId],
     );
+
+    // Sync to backend if user is logged in
+    if (userProfile?.id) {
+      const numericAlertId = parseInt(alertId, 10);
+      if (!isNaN(numericAlertId)) {
+        alertAcknowledgmentService.acknowledgeAlert({
+          alert_id: numericAlertId,
+          user_id: userProfile.id,
+          response_status: citizenResponses[alertId] || 'safe',
+        }).catch((error: unknown) => {
+          console.error("Failed to sync alert acknowledgment to backend:", error);
+          // Don't throw error - local state update succeeded
+        });
+      }
+    }
   };
 
   const handleSetResponseStatus = (alertId: string, status: CitizenStatus) => {

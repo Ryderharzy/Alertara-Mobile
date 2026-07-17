@@ -1,3 +1,5 @@
+import { useAuth } from "@/context/auth-context";
+import { userPreferenceService } from "@/services/api/user-preference-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
@@ -38,6 +40,7 @@ export const PreferencesProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
+  const { userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguageState] = useState<LanguageOption>("en");
   const [alertPreferences, setAlertPreferencesState] = useState({
@@ -83,6 +86,24 @@ export const PreferencesProvider = ({
       try {
         setLanguageState(lang);
         await AsyncStorage.setItem("language", lang);
+
+        // Sync to backend if user is logged in
+        if (userProfile?.id) {
+          try {
+            await userPreferenceService.savePreferences({
+              user_id: userProfile.id,
+              language: lang,
+              alert_crimes: alertPreferences.crimes,
+              alert_emergencies: alertPreferences.emergencies,
+              alert_community: alertPreferences.communityAlerts,
+              notification_email: alertPreferences.email,
+              notification_sms: alertPreferences.sms,
+            });
+          } catch (backendError) {
+            console.error("Failed to sync language to backend:", backendError);
+            // Don't throw error - local storage update succeeded
+          }
+        }
       } catch (error) {
         console.error("Failed to set language:", error);
         throw error;
@@ -95,6 +116,24 @@ export const PreferencesProvider = ({
         const updated = { ...alertPreferences, ...prefs };
         setAlertPreferencesState(updated);
         await AsyncStorage.setItem("alertPreferences", JSON.stringify(updated));
+
+        // Sync to backend if user is logged in
+        if (userProfile?.id) {
+          try {
+            await userPreferenceService.savePreferences({
+              user_id: userProfile.id,
+              language: language,
+              alert_crimes: updated.crimes,
+              alert_emergencies: updated.emergencies,
+              alert_community: updated.communityAlerts,
+              notification_email: updated.email,
+              notification_sms: updated.sms,
+            });
+          } catch (backendError) {
+            console.error("Failed to sync alert preferences to backend:", backendError);
+            // Don't throw error - local storage update succeeded
+          }
+        }
       } catch (error) {
         console.error("Failed to update alert preferences:", error);
         throw error;
