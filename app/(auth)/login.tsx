@@ -1,39 +1,52 @@
 import {
-  Colors,
-  DARK_BACKGROUND,
-  LIGHT_BACKGROUND,
-  TealColors,
+    Colors,
+    DARK_BACKGROUND,
+    LIGHT_BACKGROUND,
+    TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Animated,
+    Easing,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 export default function LoginScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { signIn } = useAuth();
+  const { signIn, activateSession } = useAuth();
   const colors = Colors[isDarkMode ? "dark" : "light"];
   const bgColor = isDarkMode ? DARK_BACKGROUND : LIGHT_BACKGROUND;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-
-  const [navigateAfterLogin, setNavigateAfterLogin] = useState(false);
+  const [successVisible, setSuccessVisible] = useState(false);
+  const [pendingUser, setPendingUser] = useState<{
+    id: number;
+    name: string;
+    email: string;
+    phone: string | null;
+    status: string | null;
+    user_type: string | null;
+  } | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const successScale = useRef(new Animated.Value(0.7)).current;
+  const successOpacity = useRef(new Animated.Value(0)).current;
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -43,18 +56,59 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      await signIn(email, password);
-      setNavigateAfterLogin(true);
+      setLoginError(null);
+      const user = await signIn(email, password);
+      setPendingUser(user);
+      setSuccessVisible(true);
     } catch (error) {
-      Alert.alert(
-        "Login Failed",
-        "Please check your credentials and try again",
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Please check your credentials and try again.";
+      setLoginError(message);
+      Alert.alert("Login Failed", message);
       console.error("Login error:", error);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!successVisible) return;
+
+    Animated.parallel([
+      Animated.timing(successOpacity, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(successScale, {
+        toValue: 1,
+        friction: 7,
+        tension: 70,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const timeout = setTimeout(() => {
+      setSuccessVisible(false);
+      if (pendingUser) {
+        activateSession(pendingUser);
+        router.replace("/(tabs)");
+      }
+      setPendingUser(null);
+    }, 1200);
+
+    return () => clearTimeout(timeout);
+  }, [
+    activateSession,
+    pendingUser,
+    router,
+    successOpacity,
+    successScale,
+    successVisible,
+  ]);
 
   const handleSignUp = () => {
     router.push("/(auth)/signup");
@@ -62,19 +116,11 @@ export default function LoginScreen() {
 
   const handleContinueWithoutAccount = async () => {
     try {
-      // Set a guest token to allow access
-      await signIn("guest@alertara.app", "guest-session");
-      setNavigateAfterLogin(true);
+      router.replace("/(tabs)");
     } catch (error) {
       console.error("Error continuing without account:", error);
     }
   };
-
-  useEffect(() => {
-    if (navigateAfterLogin && router.isReady) {
-      router.replace("/(tabs)");
-    }
-  }, [navigateAfterLogin, router]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
@@ -187,6 +233,12 @@ export default function LoginScreen() {
                 Forgot Password?
               </Text>
             </TouchableOpacity>
+
+            {loginError ? (
+              <Text style={styles.errorText} accessibilityRole="alert">
+                {loginError}
+              </Text>
+            ) : null}
           </View>
 
           {/* Action Buttons */}
@@ -241,6 +293,29 @@ export default function LoginScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {successVisible && (
+        <Animated.View
+          style={[styles.successOverlay, { opacity: successOpacity }]}
+        >
+          <Animated.View
+            style={[
+              styles.successCard,
+              { transform: [{ scale: successScale }] },
+            ]}
+          >
+            <View style={styles.successIconCircle}>
+              <Ionicons name="checkmark" size={34} color="#fff" />
+            </View>
+            <Text style={styles.successTitle}>Account verified</Text>
+            <Text style={styles.successSubtitle}>Login successful</Text>
+            <ActivityIndicator
+              color={TealColors.primary}
+              style={{ marginTop: 12 }}
+            />
+          </Animated.View>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -364,6 +439,12 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+  errorText: {
+    color: "#ef4444",
+    fontSize: 14,
+    marginTop: 12,
+    textAlign: "center",
+  },
   continueWithoutButton: {
     paddingVertical: 12,
     alignItems: "center",
@@ -403,5 +484,39 @@ export const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 18,
     marginTop: 8,
+  },
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  successCard: {
+    width: "78%",
+    maxWidth: 320,
+    borderRadius: 22,
+    paddingVertical: 24,
+    paddingHorizontal: 22,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  successIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: TealColors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1d1d1d",
+  },
+  successSubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    color: "#666",
   },
 });

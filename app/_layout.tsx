@@ -22,20 +22,9 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    // DEBUG: Log the current auth state
-    console.log(
-      "RootLayout - onboardingCompleted:",
-      onboardingCompleted,
-      "userToken:",
-      userToken,
-    );
-
-    // Route based on auth state
-    if (onboardingCompleted === false) {
+    if (!onboardingCompleted) {
       router.replace("/(onboarding)");
-    } else if (onboardingCompleted === true && !userToken) {
-      router.replace("/(auth)/login");
-    } else if (onboardingCompleted === true && userToken) {
+    } else {
       router.replace("/(tabs)");
     }
   }, [isLoading, onboardingCompleted, userToken, router]);

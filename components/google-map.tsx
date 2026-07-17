@@ -6,8 +6,8 @@ import { ActivityIndicator, Image, StyleSheet, View } from "react-native";
 // Use clustering to reduce marker clutter (especially for evacuation sites).
 import MapView from "react-native-map-clustering";
 import { Marker, Polygon, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
-import { IconSymbol } from "./ui/icon-symbol";
 import { ThemedText } from "./themed-text";
+import { IconSymbol } from "./ui/icon-symbol";
 
 const INITIAL_REGION = {
   latitude: 14.628,
@@ -39,7 +39,13 @@ interface GoogleMapProps {
   isLoadingCrimeData?: boolean;
   clusteringEnabled?: boolean;
   routePath?: { latitude: number; longitude: number }[] | null;
-  mapType?: "standard" | "satellite" | "hybrid" | "terrain" | "none" | "mutedStandard";
+  mapType?:
+    | "standard"
+    | "satellite"
+    | "hybrid"
+    | "terrain"
+    | "none"
+    | "mutedStandard";
   onMapReady?: () => void;
   onMapPress?: () => void;
   onMarkerPress?: (marker: any) => void;
@@ -100,7 +106,7 @@ function GoogleMapComponent({
             longitude: userLocation.longitude,
           }
         : null,
-    [userLocation]
+    [userLocation],
   );
 
   const handleMapReady = useCallback(() => {
@@ -124,7 +130,7 @@ function GoogleMapComponent({
         latitudeDelta: focusTarget.zoomDelta ?? 0.03,
         longitudeDelta: focusTarget.zoomDelta ?? 0.03,
       },
-      700
+      700,
     );
   }, [focusTarget]);
 
@@ -193,7 +199,9 @@ function GoogleMapComponent({
             // @ts-expect-error cluster prop comes from react-native-map-clustering
             cluster={false}
             tracksViewChanges={false}
-            onPress={() => onMarkerPress?.({ type: "user", data: userLocation })}
+            onPress={() =>
+              onMarkerPress?.({ type: "user", data: userLocation })
+            }
           >
             <View style={styles.userMarkerWrap}>
               <View style={styles.userMarkerInner}>
@@ -208,12 +216,17 @@ function GoogleMapComponent({
           return (
             <Marker
               key={site.id}
-              coordinate={{ latitude: site.latitude, longitude: site.longitude }}
+              coordinate={{
+                latitude: site.latitude,
+                longitude: site.longitude,
+              }}
               title={site.name}
               description={`${site.district} evacuation site`}
               // Keep view-based markers from disappearing when clustering/zooming.
               tracksViewChanges={true}
-              onPress={() => onMarkerPress?.({ type: "evacuation", data: site })}
+              onPress={() =>
+                onMarkerPress?.({ type: "evacuation", data: site })
+              }
             >
               <IconSymbol
                 name="building"
@@ -232,28 +245,33 @@ function GoogleMapComponent({
           return (
             <Marker
               key={weather.id}
-              coordinate={{ latitude: weather.latitude, longitude: weather.longitude }}
+              coordinate={{
+                latitude: weather.latitude,
+                longitude: weather.longitude,
+              }}
               title={`${weather.barangay} Weather`}
               description={`${weather.weatherLabel}${weather.forecastTimeLabel ? ` at ${weather.forecastTimeLabel}` : ""}${weather.temperatureC !== null ? `, ${weather.temperatureC}\u00B0C` : ""}`}
               // Keep weather markers out of evac clustering.
               // @ts-expect-error cluster prop comes from react-native-map-clustering
               cluster={false}
-              onPress={() => onMarkerPress?.({ type: "weather", data: weather })}
-            tracksViewChanges={true}
-          >
-            {markerIconSource ? (
-              <Image
-                source={markerIconSource}
-                style={styles.weatherMarkerIcon}
-                resizeMode="contain"
-              />
-            ) : (
-              <IconSymbol
-                name="cloud-outline"
-                size={28}
-                color={weatherPinColor(weather.weatherLabel)}
-              />
-            )}
+              onPress={() =>
+                onMarkerPress?.({ type: "weather", data: weather })
+              }
+              tracksViewChanges={true}
+            >
+              {markerIconSource ? (
+                <Image
+                  source={markerIconSource}
+                  style={styles.weatherMarkerIcon}
+                  resizeMode="contain"
+                />
+              ) : (
+                <IconSymbol
+                  name="cloud-outline"
+                  size={28}
+                  color={weatherPinColor(weather.weatherLabel)}
+                />
+              )}
             </Marker>
           );
         })}
@@ -277,7 +295,9 @@ function GoogleMapComponent({
       {isLoadingCrimeData && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={TealColors.primary} />
-          <ThemedText style={styles.loadingText}>Loading crime data...</ThemedText>
+          <ThemedText style={styles.loadingText}>
+            Loading crime data...
+          </ThemedText>
         </View>
       )}
     </View>
@@ -333,21 +353,4 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
   },
-  weatherBadge: {
-    minWidth: 40,
-    minHeight: 40,
-    borderRadius: 12,
-    padding: 6,
-    backgroundColor: "#0f172a",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "rgba(15, 23, 42, 0.2)",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 3,
-    elevation: 4,
-  },
 });
-

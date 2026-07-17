@@ -1,21 +1,21 @@
-import { useState, useCallback } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
-import { IconSymbol } from "@/components/ui/icon-symbol";
 import { ThemedText } from "@/components/themed-text";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+    ActivityIndicator,
+    FlatList,
+    Pressable,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 
 type IncidentIndexItem = {
   id: string;
@@ -63,7 +63,7 @@ export default function ReportHistoryScreen() {
     useCallback(() => {
       void load();
       return () => {};
-    }, [])
+    }, []),
   );
 
   const handleClear = async () => {
@@ -78,7 +78,9 @@ export default function ReportHistoryScreen() {
     } as never);
   };
 
-  const background = isDarkMode ? Colors.dark.background : Colors.light.background;
+  const background = isDarkMode
+    ? Colors.dark.background
+    : Colors.light.background;
   const cardBg = isDarkMode ? "#18252a" : "#ffffff";
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
   const headerBg = isDarkMode ? "#0f1f1b" : "#e6f4ef";
@@ -124,7 +126,10 @@ export default function ReportHistoryScreen() {
       </View>
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 20 }} color={TealColors.primary} />
+        <ActivityIndicator
+          style={{ marginTop: 20 }}
+          color={TealColors.primary}
+        />
       ) : items.length === 0 ? (
         <View style={styles.empty}>
           <IconSymbol name="clock.arrow.circlepath" size={26} color="#9ca3af" />
@@ -148,49 +153,85 @@ export default function ReportHistoryScreen() {
                     ? t("status.inProgress")
                     : statusKey === "resolved"
                       ? t("status.resolved")
-                      : item.status ?? t("status.pending");
+                      : (item.status ?? t("status.pending"));
             const icon = item.icon ?? "exclamationmark.triangle";
             const statusColor = statusKey === "pending" ? "#e3b341" : "#2f9d63";
             return (
-            <Pressable
-              style={[
-                styles.card,
-                { backgroundColor: cardBg, borderColor: isDarkMode ? "#24333b" : "#e1e7ec" },
-              ]}
-              onPress={() => openChat(item)}
-            >
-              <View style={styles.cardHeader}>
-                <View style={[styles.iconCircle, { backgroundColor: `${statusColor}1a` }]}>
-                  <IconSymbol name={icon} size={16} color={statusColor} />
+              <Pressable
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: cardBg,
+                    borderColor: isDarkMode ? "#24333b" : "#e1e7ec",
+                  },
+                ]}
+                onPress={() => openChat(item)}
+              >
+                <View style={styles.cardHeader}>
+                  <View
+                    style={[
+                      styles.iconCircle,
+                      { backgroundColor: `${statusColor}1a` },
+                    ]}
+                  >
+                    <IconSymbol name={icon} size={16} color={statusColor} />
+                  </View>
+                  <ThemedText
+                    style={[styles.cardTitle, { color: textColor }]}
+                    numberOfLines={1}
+                  >
+                    {decodeURIComponent(item.title)}
+                  </ThemedText>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      {
+                        borderColor: statusColor,
+                        backgroundColor: `${statusColor}15`,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.statusText, { color: statusColor }]}>
+                      {status}
+                    </Text>
+                  </View>
                 </View>
-                <ThemedText style={[styles.cardTitle, { color: textColor }]} numberOfLines={1}>
-                  {decodeURIComponent(item.title)}
-                </ThemedText>
-                <View style={[styles.statusPill, { borderColor: statusColor, backgroundColor: `${statusColor}15` }]}>
-                  <Text style={[styles.statusText, { color: statusColor }]}>{status}</Text>
+                <View style={styles.infoRow}>
+                  <ThemedText
+                    style={[
+                      styles.meta,
+                      { color: isDarkMode ? "#cbd5e1" : "#475569" },
+                    ]}
+                  >
+                    {t("history.updated")}{" "}
+                    {new Date(item.updatedAt).toLocaleString()}
+                  </ThemedText>
+                  <Pressable
+                    style={[
+                      styles.chatBtn,
+                      {
+                        borderColor: TealColors.primary,
+                        backgroundColor: isDarkMode ? "#132622" : "#e8f6f2",
+                      },
+                    ]}
+                    onPress={() => openChat(item)}
+                  >
+                    <IconSymbol
+                      name="bubble.right"
+                      size={14}
+                      color={TealColors.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.chatBtnText,
+                        { color: TealColors.primary },
+                      ]}
+                    >
+                      {t("history.openConversation")}
+                    </Text>
+                  </Pressable>
                 </View>
-              </View>
-              <View style={styles.infoRow}>
-                <ThemedText style={[styles.meta, { color: isDarkMode ? "#cbd5e1" : "#475569" }]}>
-                  {t("history.updated")} {new Date(item.updatedAt).toLocaleString()}
-                </ThemedText>
-                <Pressable
-                  style={[
-                    styles.chatBtn,
-                    {
-                      borderColor: TealColors.primary,
-                      backgroundColor: isDarkMode ? "#132622" : "#e8f6f2",
-                    },
-                  ]}
-                  onPress={() => openChat(item)}
-                >
-                  <IconSymbol name="bubble.right" size={14} color={TealColors.primary} />
-                  <Text style={[styles.chatBtnText, { color: TealColors.primary }]}>
-                    {t("history.openConversation")}
-                  </Text>
-                </Pressable>
-              </View>
-            </Pressable>
+              </Pressable>
             );
           }}
         />
@@ -201,7 +242,13 @@ export default function ReportHistoryScreen() {
         onPress={() =>
           router.push({
             pathname: "/chat/[id]",
-            params: { id: "general", title: "General Support", category: "General" },
+            params: {
+              id: "general",
+              title: "General Support",
+              category: "General",
+              status: "Active",
+              icon: "robot",
+            },
           } as never)
         }
         accessibilityLabel="Open general support chat"

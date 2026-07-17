@@ -9,7 +9,7 @@ type IconMapping = Record<
   SymbolViewProps["name"],
   ComponentProps<typeof Ionicons>["name"]
 >;
-type IconSymbolName = keyof typeof MAPPING;
+export type IconSymbolName = keyof typeof MAPPING;
 
 /**
  * Add your SF Symbols to Ionicons mappings here.
@@ -45,21 +45,29 @@ const MAPPING = {
   "arrow.left": "chevron-back",
   "map.fill": "map",
   map: "map-outline",
+  newspaper: "newspaper-outline",
   flame: "flame",
   shield: "shield",
   bandage: "bandage-outline",
+  response: "flash-outline",
   network: "share-social-outline",
   bolt: "flash-outline",
   viewfinder: "scan-outline",
   "chart.bar": "bar-chart-outline",
+  analytics: "bar-chart-outline",
   "clipboard.checkmark": "clipboard-check-outline",
+  inspection: "clipboard-check-outline",
   "wand.and.stars": "sparkles-outline",
+  readiness: "sparkles-outline",
   "antenna.radiowaves.left.and.right": "radio-outline",
+  broadcast: "radio-outline",
   archivebox: "archive-outline",
+  inventory: "archive-outline",
   filter: "filter",
-  "car-sport": "car-sport",
-  "weather-partly-snowy-rainy": "partly-sunny",
+  "car.side": "car-sport-outline",
+  "cloud.sun": "partly-sunny-outline",
   megaphone: "megaphone-outline",
+  campaign: "megaphone-outline",
   clock: "time",
   "info.circle": "information-circle",
   checkmark: "checkmark-done",
@@ -86,6 +94,7 @@ const MAPPING = {
   "bubble.left.and.bubble.right": "chatbubbles-outline",
   "person.crop.circle.badge.checkmark": "person-circle-outline",
   "doc.text.magnifyingglass": "document-text-outline",
+  "clock.arrow.circlepath": "time-outline",
 } as unknown as IconMapping;
 
 /**
@@ -107,7 +116,5 @@ export function IconSymbol({
 }) {
   const mappedName = MAPPING[name as IconSymbolName] ?? "help-circle-outline";
 
-  return (
-    <Ionicons color={color} size={size} name={mappedName} style={style} />
-  );
+  return <Ionicons color={color} size={size} name={mappedName} style={style} />;
 }

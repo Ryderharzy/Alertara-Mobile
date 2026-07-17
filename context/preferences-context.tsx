@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-export type LanguageOption = "en" | "es" | "fr" | "tl";
+export type LanguageOption = "en" | "es" | "fr" | "tl" | "ceb" | "war" | "hil";
 export type AlertPreference = "all" | "critical" | "none";
 
 type PreferencesContextType = {
