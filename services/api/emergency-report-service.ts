@@ -37,7 +37,7 @@ export const emergencyReportService = {
     data: EmergencyReportResponse;
   }> {
     try {
-      const response = await apiClient.post('/emergency_reports.php', data);
+      const response = await apiClient.post('/reports/emergency_reports.php', data);
       return response.data;
     } catch (error) {
       console.error('Failed to submit emergency report:', error);
@@ -55,7 +55,7 @@ export const emergencyReportService = {
   }> {
     try {
       const params = userId ? { user_id: userId } : {};
-      const response = await apiClient.get('/emergency_reports.php', { params });
+      const response = await apiClient.get('/reports/emergency_reports.php', { params });
       return response.data;
     } catch (error) {
       console.error('Failed to fetch emergency reports:', error);

@@ -134,7 +134,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     onboardingCompleted,
     signIn: async (email: string, password: string) => {
       try {
-        const response = await apiClient.post("/login.php", {
+        const response = await apiClient.post("/auth/login.php", {
           email,
           password,
         });
@@ -151,7 +151,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     },
     signUp: async (data: SignUpData) => {
       try {
-        const response = await apiClient.post("/register.php", {
+        const response = await apiClient.post("/auth/register.php", {
           name: data.name,
           email: data.email,
           password: data.password,
@@ -180,7 +180,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     signOut: async () => {
       try {
         try {
-          await apiClient.post("/logout.php");
+          await apiClient.post("/auth/logout.php");
         } catch (logoutError) {
           console.warn(
             "Logout API call failed, continuing local sign-out:",

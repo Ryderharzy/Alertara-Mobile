@@ -30,7 +30,7 @@ export const alertAcknowledgmentService = {
     data: AlertAcknowledgmentResponse;
   }> {
     try {
-      const response = await apiClient.post('/acknowledge_alert.php', data);
+      const response = await apiClient.post('/alerts/acknowledge_alert.php', data);
       return response.data;
     } catch (error) {
       console.error('Failed to acknowledge alert:', error);
@@ -51,7 +51,7 @@ export const alertAcknowledgmentService = {
       if (userId) params.user_id = userId;
       if (alertId) params.alert_id = alertId;
 
-      const response = await apiClient.get('/acknowledge_alert.php', { params });
+      const response = await apiClient.get('/alerts/acknowledge_alert.php', { params });
       return response.data;
     } catch (error) {
       console.error('Failed to fetch alert acknowledgments:', error);

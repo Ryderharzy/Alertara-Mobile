@@ -34,7 +34,7 @@ export const userPreferenceService = {
     data: UserPreferenceResponse;
   }> {
     try {
-      const response = await apiClient.post('/user_preferences.php', data);
+      const response = await apiClient.post('/preferences/user_preferences.php', data);
       return response.data;
     } catch (error) {
       console.error('Failed to save user preferences:', error);
@@ -51,7 +51,7 @@ export const userPreferenceService = {
     data: UserPreferenceResponse;
   }> {
     try {
-      const response = await apiClient.get('/user_preferences.php', {
+      const response = await apiClient.get('/preferences/user_preferences.php', {
         params: { user_id: userId }
       });
       return response.data;
