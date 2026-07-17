@@ -40,7 +40,7 @@ import {
 export default function MeScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
   const router = useRouter();
-  const { userProfile, signOut } = useAuth();
+  const { userProfile, signOut, updateProfile } = useAuth();
   const { scrollTo } = useGlobalSearchParams<{ scrollTo?: string }>();
   const scrollTarget = Array.isArray(scrollTo) ? scrollTo[0] : scrollTo;
   const scrollRef = useRef<ScrollView>(null);
@@ -67,6 +67,12 @@ export default function MeScreen() {
   const [logoutSuccessVisible, setLogoutSuccessVisible] = useState(false);
   const logoutScale = useRef(new Animated.Value(0.7)).current;
   const logoutOpacity = useRef(new Animated.Value(0)).current;
+  const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [alertCategoriesExpanded, setAlertCategoriesExpanded] = useState(false);
+  const [notificationChannelsExpanded, setNotificationChannelsExpanded] = useState(false);
   const isLoggedIn = Boolean(userProfile?.id);
   const displayName = userProfile?.name ?? "Guest Mode";
   const displayEmail = userProfile?.email ?? "No account connected";
@@ -107,10 +113,10 @@ export default function MeScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert(getTranslation("report_emergency", language as any), getTranslation("please_remain_calm", language as any), [
-      { text: getTranslation("all_clear", language as any), onPress: () => {} },
+    Alert.alert("Log Out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: getTranslation("emergency_alert", language as any),
+        text: "Log Out",
         onPress: async () => {
           try {
             await signOut();
@@ -135,12 +141,41 @@ export default function MeScreen() {
               router.replace("/(auth)/login");
             }, 1200);
           } catch {
-            Alert.alert(getTranslation("all_clear", language as any), getTranslation("help_is_on_the_way", language as any));
+            Alert.alert("Error", "Failed to log out. Please try again.");
           }
         },
         style: "destructive",
       },
     ]);
+  };
+
+  const handleEditProfile = () => {
+    setEditName(userProfile?.name || "");
+    setEditEmail(userProfile?.email || "");
+    setEditPhone(userProfile?.phone || "");
+    setEditProfileModalVisible(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!userProfile?.id) return;
+    
+    if (!editName || !editEmail) {
+      Alert.alert("Error", "Name and email are required");
+      return;
+    }
+
+    try {
+      await updateProfile({
+        user_id: userProfile.id,
+        name: editName,
+        email: editEmail,
+        phone: editPhone || null,
+      });
+      setEditProfileModalVisible(false);
+      Alert.alert("Success", "Profile updated successfully");
+    } catch (error) {
+      Alert.alert("Error", "Failed to update profile. Please try again.");
+    }
   };
 
   const handleRegister = () => {
@@ -347,12 +382,7 @@ export default function MeScreen() {
           <SettingsMenuItem
             label="Edit Profile"
             icon="pencil"
-            onPress={() =>
-              Alert.alert(
-                getTranslation("stay_informed", language as any),
-                getTranslation("help_is_on_the_way", language as any),
-              )
-            }
+            onPress={handleEditProfile}
           />
           <SettingsDivider />
           <SettingsMenuItem
@@ -382,49 +412,111 @@ export default function MeScreen() {
 
         {/* Alert Preferences */}
         <SettingsSection title="ALERT PREFERENCES">
-          <SettingsToggle
-            label="Crime Alerts"
-            description="Get notified of crime incidents nearby"
-            value={alertPreferences.crimes}
-            onValueChange={(value) => updateAlertPreferences({ crimes: value })}
-            icon="exclamationmark.triangle"
+          <SettingsMenuItem
+            label="Alert Categories"
+            icon="list.bullet"
+            onPress={() => setAlertCategoriesExpanded(!alertCategoriesExpanded)}
+            showChevron={true}
           />
+          
+          {alertCategoriesExpanded && (
+            <>
+              <SettingsToggle
+                label="Crime Alerts"
+                description="Get notified of crime incidents nearby"
+                value={alertPreferences.crimes}
+                onValueChange={(value) => updateAlertPreferences({ crimes: value })}
+                icon="exclamationmark.triangle"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="Emergency Alerts"
+                description="High priority emergency notifications"
+                value={alertPreferences.emergencies}
+                onValueChange={(value) =>
+                  updateAlertPreferences({ emergencies: value })
+                }
+                icon="bell"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="Community Alerts"
+                description="Community-shared alerts and updates"
+                value={alertPreferences.communityAlerts}
+                onValueChange={(value) =>
+                  updateAlertPreferences({ communityAlerts: value })
+                }
+                icon="person.2"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="Weather Alerts"
+                description="Weather forecasts and warnings"
+                value={alertPreferences.weather}
+                onValueChange={(value) =>
+                  updateAlertPreferences({ weather: value })
+                }
+                icon="cloud"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="Traffic Alerts"
+                description="Traffic updates and road closures"
+                value={alertPreferences.traffic}
+                onValueChange={(value) =>
+                  updateAlertPreferences({ traffic: value })
+                }
+                icon="car"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="Health Alerts"
+                description="Health advisories and medical updates"
+                value={alertPreferences.health}
+                onValueChange={(value) =>
+                  updateAlertPreferences({ health: value })
+                }
+                icon="heart"
+              />
+            </>
+          )}
+          
           <SettingsDivider />
-          <SettingsToggle
-            label="Emergency Alerts"
-            description="High priority emergency notifications"
-            value={alertPreferences.emergencies}
-            onValueChange={(value) =>
-              updateAlertPreferences({ emergencies: value })
-            }
-            icon="bell"
+          
+          <SettingsMenuItem
+            label="Notification Channels"
+            icon="antenna.radiowaves.left.and.right"
+            onPress={() => setNotificationChannelsExpanded(!notificationChannelsExpanded)}
+            showChevron={true}
           />
-          <SettingsDivider />
-          <SettingsToggle
-            label="Community Alerts"
-            description="Community-shared alerts and updates"
-            value={alertPreferences.communityAlerts}
-            onValueChange={(value) =>
-              updateAlertPreferences({ communityAlerts: value })
-            }
-            icon="person.2"
-          />
-          <SettingsDivider />
-          <SettingsToggle
-            label="Email Notifications"
-            description="Receive alerts via email"
-            value={alertPreferences.email}
-            onValueChange={(value) => updateAlertPreferences({ email: value })}
-            icon="mail"
-          />
-          <SettingsDivider />
-          <SettingsToggle
-            label="SMS Notifications"
-            description="Receive alerts via SMS"
-            value={alertPreferences.sms}
-            onValueChange={(value) => updateAlertPreferences({ sms: value })}
-            icon="message"
-          />
+          
+          {notificationChannelsExpanded && (
+            <>
+              <SettingsToggle
+                label="Push Notifications"
+                description="Receive alerts via app notifications"
+                value={alertPreferences.push}
+                onValueChange={(value) => updateAlertPreferences({ push: value })}
+                icon="iphone"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="Email Notifications"
+                description="Receive alerts via email"
+                value={alertPreferences.email}
+                onValueChange={(value) => updateAlertPreferences({ email: value })}
+                icon="mail"
+              />
+              <SettingsDivider />
+              <SettingsToggle
+                label="SMS Notifications"
+                description="Receive alerts via SMS"
+                value={alertPreferences.sms}
+                onValueChange={(value) => updateAlertPreferences({ sms: value })}
+                icon="message"
+              />
+            </>
+          )}
         </SettingsSection>
 
         {/* Preferences */}
@@ -651,6 +743,111 @@ export default function MeScreen() {
               >
                 <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
                   Change
+                </ThemedText>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={editProfileModalVisible}
+        transparent
+        animationType="fade"
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setEditProfileModalVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.passwordModal,
+              { backgroundColor: isDarkMode ? DARK_CARD_BG : LIGHT_CARD_BG },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <ThemedText style={styles.modalTitle}>Edit Profile</ThemedText>
+
+            <View style={styles.passwordInputContainer}>
+              <ThemedText style={styles.inputLabel}>
+                Name
+              </ThemedText>
+              <TextInput
+                style={[
+                  styles.passwordInput,
+                  {
+                    backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                    color: isDarkMode ? "#fff" : "#000",
+                    borderColor: isDarkMode ? "#555" : "#ddd",
+                  },
+                ]}
+                placeholder="Enter your name"
+                placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
+                value={editName}
+                onChangeText={setEditName}
+              />
+            </View>
+
+            <View style={styles.passwordInputContainer}>
+              <ThemedText style={styles.inputLabel}>
+                Email
+              </ThemedText>
+              <TextInput
+                style={[
+                  styles.passwordInput,
+                  {
+                    backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                    color: isDarkMode ? "#fff" : "#000",
+                    borderColor: isDarkMode ? "#555" : "#ddd",
+                  },
+                ]}
+                placeholder="Enter your email"
+                placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={editEmail}
+                onChangeText={setEditEmail}
+              />
+            </View>
+
+            <View style={styles.passwordInputContainer}>
+              <ThemedText style={styles.inputLabel}>
+                Phone
+              </ThemedText>
+              <TextInput
+                style={[
+                  styles.passwordInput,
+                  {
+                    backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                    color: isDarkMode ? "#fff" : "#000",
+                    borderColor: isDarkMode ? "#555" : "#ddd",
+                  },
+                ]}
+                placeholder="Enter your phone number"
+                placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
+                keyboardType="phone-pad"
+                value={editPhone}
+                onChangeText={setEditPhone}
+              />
+            </View>
+
+            <View style={styles.modalButtonContainer}>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: "#ddd" }]}
+                onPress={() => setEditProfileModalVisible(false)}
+              >
+                <ThemedText style={styles.modalButtonText}>Cancel</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.modalButton,
+                  { backgroundColor: TealColors.primary },
+                ]}
+                onPress={handleSaveProfile}
+              >
+                <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
+                  Save
                 </ThemedText>
               </Pressable>
             </View>

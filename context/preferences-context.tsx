@@ -13,8 +13,12 @@ type PreferencesContextType = {
     crimes: boolean;
     emergencies: boolean;
     communityAlerts: boolean;
+    weather: boolean;
+    traffic: boolean;
+    health: boolean;
     email: boolean;
     sms: boolean;
+    push: boolean;
   };
   incidentHistory: {
     calls: number;
@@ -47,8 +51,12 @@ export const PreferencesProvider = ({
     crimes: true,
     emergencies: true,
     communityAlerts: true,
+    weather: true,
+    traffic: true,
+    health: true,
     email: false,
     sms: false,
+    push: true,
   });
   const [incidentHistory, setIncidentHistoryState] = useState({
     calls: 0,
@@ -92,12 +100,18 @@ export const PreferencesProvider = ({
           try {
             await userPreferenceService.savePreferences({
               user_id: userProfile.id,
-              language: lang,
-              alert_crimes: alertPreferences.crimes,
-              alert_emergencies: alertPreferences.emergencies,
-              alert_community: alertPreferences.communityAlerts,
-              notification_email: alertPreferences.email,
-              notification_sms: alertPreferences.sms,
+              preferred_language: lang,
+              sms_notifications: alertPreferences.sms,
+              email_notifications: alertPreferences.email,
+              push_notifications: alertPreferences.push,
+              alert_categories: JSON.stringify({
+                crimes: alertPreferences.crimes,
+                emergencies: alertPreferences.emergencies,
+                community: alertPreferences.communityAlerts,
+                weather: alertPreferences.weather,
+                traffic: alertPreferences.traffic,
+                health: alertPreferences.health,
+              }),
             });
           } catch (backendError) {
             console.error("Failed to sync language to backend:", backendError);
@@ -122,12 +136,18 @@ export const PreferencesProvider = ({
           try {
             await userPreferenceService.savePreferences({
               user_id: userProfile.id,
-              language: language,
-              alert_crimes: updated.crimes,
-              alert_emergencies: updated.emergencies,
-              alert_community: updated.communityAlerts,
-              notification_email: updated.email,
-              notification_sms: updated.sms,
+              preferred_language: language,
+              sms_notifications: updated.sms,
+              email_notifications: updated.email,
+              push_notifications: updated.push,
+              alert_categories: JSON.stringify({
+                crimes: updated.crimes,
+                emergencies: updated.emergencies,
+                community: updated.communityAlerts,
+                weather: updated.weather,
+                traffic: updated.traffic,
+                health: updated.health,
+              }),
             });
           } catch (backendError) {
             console.error("Failed to sync alert preferences to backend:", backendError);
