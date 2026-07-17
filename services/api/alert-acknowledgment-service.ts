@@ -8,14 +8,15 @@ import { apiClient } from './api-config';
 export interface AlertAcknowledgmentData {
   alert_id: number;
   user_id: number;
-  response_status?: 'safe' | 'need-help' | 'evacuated' | 'not-affected';
-  response_notes?: string;
+  status?: 'received' | 'safe' | 'need-help' | 'evacuated' | 'not-affected';
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface AlertAcknowledgmentResponse {
   alert_id: number;
   user_id: number;
-  response_status: string;
+  status: string;
   acknowledged_at: string;
 }
 

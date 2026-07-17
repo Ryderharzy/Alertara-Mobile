@@ -7,22 +7,20 @@ import { apiClient } from './api-config';
 
 export interface UserPreferenceData {
   user_id: number;
-  language: 'en' | 'tl' | 'ceb' | 'war' | 'hil' | 'es' | 'fr';
-  alert_crimes?: boolean;
-  alert_emergencies?: boolean;
-  alert_community?: boolean;
-  notification_email?: boolean;
-  notification_sms?: boolean;
+  preferred_language: 'en' | 'tl' | 'ceb' | 'war' | 'hil' | 'es' | 'fr';
+  sms_notifications?: boolean;
+  email_notifications?: boolean;
+  push_notifications?: boolean;
+  alert_categories?: string;
 }
 
 export interface UserPreferenceResponse {
   user_id: number;
-  language: string;
-  alert_crimes: boolean;
-  alert_emergencies: boolean;
-  alert_community: boolean;
-  notification_email: boolean;
-  notification_sms: boolean;
+  preferred_language: string;
+  sms_notifications: boolean;
+  email_notifications: boolean;
+  push_notifications: boolean;
+  alert_categories?: string;
   updated_at: string;
 }
 

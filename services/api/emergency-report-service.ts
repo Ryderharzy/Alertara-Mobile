@@ -6,23 +6,24 @@
 import { apiClient } from './api-config';
 
 export interface EmergencyReportData {
-  type: 'crime' | 'fire' | 'medical' | 'traffic' | 'natural_disaster' | 'other';
+  report_type: 'crime' | 'fire' | 'medical' | 'traffic' | 'natural_disaster' | 'other';
   description: string;
-  location: string;
   latitude?: number;
   longitude?: number;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  contact_phone?: string;
   user_id?: number;
+  media_url?: string;
 }
 
 export interface EmergencyReportResponse {
   id: number;
-  type: string;
+  user_id: number;
+  report_type: string;
   description: string;
-  location: string;
-  severity: string;
+  latitude?: number;
+  longitude?: number;
   status: string;
+  media_url?: string;
+  admin_notes?: string;
   created_at: string;
 }
 
