@@ -1,10 +1,28 @@
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
+import {
+  buildReportThreadId,
+  emergencyReportService,
+  formatReportStatusLabel,
+  mapIncidentTypeToReportType,
+} from "@/services/api/emergency-report-service";
+import { upsertConversationThread } from "@/utils/conversation-inbox";
+import {
+  buildReportDescription,
+  enqueueReportSubmission,
+  flushPendingReportQueue,
+  getPendingReportCount,
+  isRetriableSubmitError,
+  PENDING_SYNC_STATUS,
+  queuedReportToInboxThread,
+} from "@/utils/report-submit-queue";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -27,8 +45,6 @@ type LatLng = {
   longitude: number;
 };
 
-const INCIDENT_INDEX_KEY = "incident-chat-index";
-const STATUS_PENDING = "Pending";
 
 const formatCoordsDescription = (coords: LatLng) =>
   `${coords.latitude.toFixed(3)}, ${coords.longitude.toFixed(3)}`;
@@ -51,6 +67,7 @@ const formatAddress = (address: Location.LocationGeocodedAddress) => {
 export default function ReportScreen() {
   const { isDarkMode } = useTheme();
   const { t } = useTranslate();
+  const { userProfile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [summary, setSummary] = useState("");
@@ -68,6 +85,8 @@ export default function ReportScreen() {
   const [locationWarning, setLocationWarning] = useState("");
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRetryingQueue, setIsRetryingQueue] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const [lastIncidentChat, setLastIncidentChat] = useState<{
     id: string;
     title: string;
@@ -164,76 +183,198 @@ export default function ReportScreen() {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!summary.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-    setConfirmation("");
+  const finalizeSuccessfulReport = async (input: {
+    threadId: string;
+    icon: string;
+    statusLabel: string;
+    submittedAt: string;
+    openChat?: boolean;
+  }) => {
+    const chatParams = {
+      id: input.threadId,
+      title: encodeURIComponent(summary.trim() || "Incident Report"),
+      category: "Alert",
+      icon: input.icon,
+      status: input.statusLabel,
+    };
+
+    setConfirmation(t("report.confirmationOk"));
+    setShowDetails(false);
+
     try {
-      const incidentId = `incident-${Date.now()}`;
-      const payload = {
-        id: incidentId,
-        summary: summary.trim(),
-        details: details.trim(),
-        severity,
-        type: selectedType,
-        location: locationCoords,
-        submittedAt: new Date().toISOString(),
-        status: STATUS_PENDING,
-        icon:
-          incidentTypes.find((t) => t.id === selectedType)?.icon ??
-          "exclamationmark.triangle",
-      };
-      // Simulated send; replace with API call later
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setConfirmation(t("report.confirmationOk"));
-      setShowDetails(false);
-      const chatParams = {
-        id: payload.id,
-        title: encodeURIComponent(payload.summary || "Incident Report"),
+      await upsertConversationThread({
+        id: input.threadId,
+        title: summary.trim() || "Incident Report",
         category: "Alert",
-        icon: payload.icon,
-        status: payload.status,
-      };
-      // maintain local history index (most recent first, max 20)
-      try {
-        const rawIndex = await AsyncStorage.getItem(INCIDENT_INDEX_KEY);
-        const parsed: {
-          id: string;
-          title: string;
-          category: string;
-          updatedAt: string;
-          icon?: string;
-          status?: string;
-        }[] = rawIndex ? JSON.parse(rawIndex) : [];
-        const filtered = parsed.filter((item) => item.id !== payload.id);
-        const next = [
-          {
-            ...chatParams,
-            updatedAt: payload.submittedAt,
-            status: payload.status,
-            icon: payload.icon,
-          },
-          ...filtered,
-        ].slice(0, 20);
-        await AsyncStorage.setItem(INCIDENT_INDEX_KEY, JSON.stringify(next));
-      } catch {
-        // ignore index write errors
-      }
-      await AsyncStorage.setItem(
-        "last-incident-chat",
-        JSON.stringify(chatParams),
-      );
-      setLastIncidentChat(chatParams);
+        status: input.statusLabel,
+        icon: input.icon,
+        lastMessage: t("report.confirmationOk"),
+        lastMessageFrom: "system",
+        updatedAt: input.submittedAt,
+      });
+    } catch {
+      // ignore index write errors
+    }
+
+    await AsyncStorage.setItem(
+      "last-incident-chat",
+      JSON.stringify(chatParams),
+    );
+    setLastIncidentChat(chatParams);
+
+    if (input.openChat !== false) {
       router.push({
         pathname: "/chat/[id]",
         params: chatParams,
       } as never);
-    } catch {
-      setConfirmation(t("report.confirmationFail"));
+    }
+  };
+
+  const openPendingReportChat = async (
+    localId: string,
+    icon: string,
+    queuedMessage: string,
+  ) => {
+    const chatParams = {
+      id: localId,
+      title: encodeURIComponent(summary.trim() || "Incident Report"),
+      category: "Alert",
+      icon,
+      status: PENDING_SYNC_STATUS,
+    };
+
+    await AsyncStorage.setItem(
+      "last-incident-chat",
+      JSON.stringify(chatParams),
+    );
+    setLastIncidentChat(chatParams);
+    setConfirmation(queuedMessage);
+    setShowDetails(false);
+    router.push({
+      pathname: "/chat/[id]",
+      params: chatParams,
+    } as never);
+  };
+
+  const refreshPendingCount = useCallback(async () => {
+    setPendingCount(await getPendingReportCount());
+  }, []);
+
+  const handleRetryQueue = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (isRetryingQueue) return;
+      const count = await getPendingReportCount();
+      if (!count) {
+        setPendingCount(0);
+        return;
+      }
+
+      setIsRetryingQueue(true);
+      try {
+        const result = await flushPendingReportQueue();
+        await refreshPendingCount();
+
+        if (result.synced > 0 && !options?.silent) {
+          setConfirmation(
+            t(
+              "report.queueSynced",
+              "{count} report(s) sent successfully.",
+            ).replace("{count}", String(result.synced)),
+          );
+        }
+
+        if (result.failed > 0 && !options?.silent) {
+          setConfirmation(
+            result.lastError ??
+              t(
+                "report.queueRetryFailed",
+                "Some reports are still waiting to send. Try again.",
+              ),
+          );
+        }
+      } finally {
+        setIsRetryingQueue(false);
+      }
+    },
+    [isRetryingQueue, refreshPendingCount, t],
+  );
+
+  const handleSubmit = async () => {
+    if (!summary.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setConfirmation("");
+
+    const icon =
+      incidentTypes.find((item) => item.id === selectedType)?.icon ??
+      "exclamationmark.triangle";
+
+    try {
+      const report = await emergencyReportService.submitReport({
+        report_type: mapIncidentTypeToReportType(selectedType),
+        description: buildReportDescription({
+          summary,
+          details,
+          severity,
+          locationNote,
+        }),
+        latitude: locationCoords.latitude,
+        longitude: locationCoords.longitude,
+        user_id: userProfile?.id,
+      });
+
+      await finalizeSuccessfulReport({
+        threadId: buildReportThreadId(report.id),
+        icon,
+        statusLabel: formatReportStatusLabel(report.status),
+        submittedAt: report.created_at ?? new Date().toISOString(),
+      });
+    } catch (error) {
+      if (isRetriableSubmitError(error)) {
+        const queued = await enqueueReportSubmission({
+          summary: summary.trim(),
+          details,
+          severity,
+          selectedType,
+          locationNote,
+          latitude: locationCoords.latitude,
+          longitude: locationCoords.longitude,
+          icon,
+          userId: userProfile?.id,
+          lastError:
+            error instanceof Error ? error.message : t("report.confirmationFail"),
+        });
+
+        await queuedReportToInboxThread(queued);
+        await refreshPendingCount();
+        await openPendingReportChat(
+          queued.localId,
+          icon,
+          t(
+            "report.queuedOffline",
+            "Saved offline. Your report will send automatically when connection returns.",
+          ),
+        );
+      } else {
+        setConfirmation(
+          error instanceof Error && error.message
+            ? error.message
+            : t("report.confirmationFail"),
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        await refreshPendingCount();
+        await handleRetryQueue({ silent: true });
+      })();
+    }, [handleRetryQueue, refreshPendingCount]),
+  );
 
   useEffect(() => {
     let subscribed = true;
@@ -281,6 +422,54 @@ export default function ReportScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {pendingCount > 0 ? (
+          <Pressable
+            style={[
+              styles.queueBanner,
+              {
+                backgroundColor: isDarkMode ? "#3b2f14" : "#fff7e6",
+                borderColor: isDarkMode ? "#854d0e" : "#f59e0b",
+              },
+            ]}
+            onPress={() => void handleRetryQueue()}
+            disabled={isRetryingQueue}
+          >
+            <View style={styles.queueBannerLeft}>
+              <IconSymbol
+                name="clock.arrow.circlepath"
+                size={18}
+                color={isDarkMode ? "#fbbf24" : "#b45309"}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.queueBannerTitle,
+                    { color: isDarkMode ? "#fde68a" : "#92400e" },
+                  ]}
+                >
+                  {t(
+                    "report.queueBannerTitle",
+                    "{count} report(s) waiting to send",
+                  ).replace("{count}", String(pendingCount))}
+                </Text>
+                <Text
+                  style={[
+                    styles.queueBannerText,
+                    { color: isDarkMode ? "#fcd34d" : "#a16207" },
+                  ]}
+                >
+                  {isRetryingQueue
+                    ? t("report.queueRetrying", "Retrying now...")
+                    : t("report.queueBannerAction", "Tap to retry now")}
+                </Text>
+              </View>
+            </View>
+            {isRetryingQueue ? (
+              <ActivityIndicator color={TealColors.primary} />
+            ) : null}
+          </Pressable>
+        ) : null}
+
         <View
           style={[
             styles.heroCard,
@@ -311,7 +500,7 @@ export default function ReportScreen() {
                 backgroundColor: isDarkMode ? "#102026" : "#ffffff",
               },
             ]}
-            onPress={() => router.push("/report-history" as never)}
+            onPress={() => router.push("/(tabs)/messages" as never)}
           >
             <IconSymbol
               name="clock.arrow.circlepath"
@@ -744,6 +933,30 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: 16,
     paddingBottom: 140, // overridden dynamically to account for tab bar + safe area
+  },
+  queueBanner: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  queueBannerLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  queueBannerTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  queueBannerText: {
+    fontSize: 12,
+    marginTop: 2,
   },
   hero: {
     flexDirection: "row",

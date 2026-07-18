@@ -92,9 +92,12 @@ const MAPPING = {
   "list.bullet": "list-outline",
   "tray.full": "file-tray-full-outline",
   "bubble.left.and.bubble.right": "chatbubbles-outline",
+  "bubble.left.and.bubble.right.fill": "chatbubbles",
   "person.crop.circle.badge.checkmark": "person-circle-outline",
   "doc.text.magnifyingglass": "document-text-outline",
   "clock.arrow.circlepath": "time-outline",
+  plus: "add",
+  trash: "trash-outline",
 } as unknown as IconMapping;
 
 /**
