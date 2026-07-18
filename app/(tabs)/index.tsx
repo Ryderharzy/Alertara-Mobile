@@ -570,18 +570,7 @@ export default function HomeScreen() {
       {/* Message Button */}
       <Pressable
         style={styles.messageButton}
-        onPress={() =>
-          router.push({
-            pathname: "/chat/[id]",
-            params: {
-              id: "general",
-              title: "General Support",
-              category: "General",
-              status: "Active",
-              icon: "robot",
-            },
-          } as never)
-        }
+        onPress={() => router.push("/messages")}
       >
         <IconSymbol size={24} name="bubble.right" color="#fff" />
       </Pressable>

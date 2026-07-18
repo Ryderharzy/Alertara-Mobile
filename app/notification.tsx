@@ -1,4 +1,4 @@
-﻿import { ThemedText } from "@/components/themed-text";
+import { ThemedText } from "@/components/themed-text";
 import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
@@ -1109,17 +1109,7 @@ export default function NotificationScreen() {
     };
   }, [gnewsApiKey, newsdataApiKey]);
 
-  const handleGeneralChat = () =>
-    router.push({
-      pathname: "/chat/[id]",
-      params: {
-        id: "general",
-        title: "General Support",
-        category: "General",
-        status: "Active",
-        icon: "robot",
-      },
-    } as never);
+  const handleGeneralChat = () => router.push("/messages");
 
   const handleAcknowledge = (alertId: string) => {
     setAcknowledgedIds((current) =>

@@ -2,16 +2,19 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
+import type { ChatMessage as ApiChatMessage } from "@/services/api/chat-service";
+import { chatService } from "@/services/api/chat-service";
 import {
-  emergencyReportService,
-  formatReportStatusLabel,
-  INCIDENT_STATUS_OPTIONS,
-  IncidentStatus,
-  parseReportIdFromThreadId,
-  statusLabelToKey,
-  statusToTranslationKey,
+    emergencyReportService,
+    formatReportStatusLabel,
+    INCIDENT_STATUS_OPTIONS,
+    IncidentStatus,
+    parseReportIdFromThreadId,
+    statusLabelToKey,
+    statusToTranslationKey,
 } from "@/services/api/emergency-report-service";
 import { upsertConversationThread } from "@/utils/conversation-inbox";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,21 +22,21 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 
-type ChatMessage = {
+type LocalChatMessage = {
   id: string;
   from: "bot" | "user";
   text: string;
@@ -103,12 +106,15 @@ export default function ChatScreen() {
   const threadIcon = rawIcon ? decodeURIComponent(rawIcon) : "robot";
   const storageKey = `${STORAGE_PREFIX}${threadId}`;
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [statusLabel, setStatusLabel] = useState<string | undefined>(() =>
     rawStatus ? decodeURIComponent(rawStatus) : undefined,
   );
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isRealTimeChat, setIsRealTimeChat] = useState(false);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const categoryLabel = category ? decodeURIComponent(category) : "General";
@@ -120,12 +126,60 @@ export default function ChatScreen() {
     currentStatusKey && statusColors[currentStatusKey]
       ? statusColors[currentStatusKey]
       : "#9ca3af";
+  const { userProfile } = useAuth();
+
+  // Check if this is a general support chat (should connect to human operators)
+  const isGeneralSupport = threadId === "general" || categoryLabel === "General";
 
   useEffect(() => {
     if (rawStatus) {
       setStatusLabel(decodeURIComponent(rawStatus));
     }
   }, [rawStatus]);
+
+  // Load real-time conversation if it's general support
+  useEffect(() => {
+    if (!isGeneralSupport) return;
+
+    const loadRealTimeConversation = async () => {
+      try {
+        setIsLoadingMessages(true);
+        
+        // Try to get conversation ID from storage
+        const storedConvId = await AsyncStorage.getItem(`conversation-${threadId}`);
+        
+        if (storedConvId) {
+          const convId = parseInt(storedConvId);
+          setConversationId(convId);
+          setIsRealTimeChat(true);
+          
+          // Load messages from backend
+          const apiMessages = await chatService.getMessages(convId, userProfile?.id);
+          
+          // Convert API messages to local format
+          const localMessages: LocalChatMessage[] = apiMessages.map((msg: ApiChatMessage) => ({
+            id: msg.message_id.toString(),
+            from: msg.sender_type === 'admin' ? 'bot' : 'user',
+            text: msg.message_text,
+            sentAt: new Date(msg.created_at).getTime(),
+          }));
+          
+          setMessages(localMessages);
+        } else {
+          // No existing conversation, will create on first message
+          setIsRealTimeChat(true);
+        }
+      } catch (error) {
+        console.error('Failed to load real-time conversation:', error);
+        // Fall back to local storage
+        setIsRealTimeChat(false);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    };
+
+    loadRealTimeConversation();
+  }, [threadId, isGeneralSupport, userProfile?.id]);
 
   const promptChips = useMemo(() => {
     const key = (category ?? "General").toString();
@@ -191,7 +245,7 @@ export default function ChatScreen() {
         const saved = await AsyncStorage.getItem(storageKey);
         if (!active) return;
         if (saved) {
-          const parsed = JSON.parse(saved) as ChatMessage[];
+          const parsed = JSON.parse(saved) as LocalChatMessage[];
           setMessages(parsed);
           return;
         }
@@ -240,10 +294,11 @@ export default function ChatScreen() {
     iconName,
   ]);
 
-  const send = (text: string) => {
+  const send = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const userMsg: ChatMessage = {
+    
+    const userMsg: LocalChatMessage = {
       id: `u-${Date.now()}`,
       from: "user",
       text: trimmed,
@@ -252,15 +307,69 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg].slice(-MAX_HISTORY));
     setInput("");
 
-    setTimeout(() => {
-      const botMsg: ChatMessage = {
-        id: `b-${Date.now()}`,
-        from: "bot",
-        text: generateBotReply(trimmed),
-        sentAt: Date.now(),
-      };
-      setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
-    }, 900);
+    // Handle real-time chat for general support
+    if (isGeneralSupport && isRealTimeChat) {
+      try {
+        let currentConvId = conversationId;
+        
+        // Create conversation if it doesn't exist
+        if (!currentConvId) {
+          const newConv = await chatService.createConversation({
+            user_id: userProfile?.id,
+            user_name: userProfile?.name || 'Guest User',
+            user_email: userProfile?.email || undefined,
+            user_phone: userProfile?.phone || undefined,
+            user_concern: 'general',
+            is_guest: !userProfile?.id ? 1 : 0,
+            message: trimmed,
+          });
+          
+          currentConvId = newConv.conversation_id;
+          setConversationId(currentConvId);
+          await AsyncStorage.setItem(`conversation-${threadId}`, currentConvId.toString());
+        } else {
+          // Send message to existing conversation
+          await chatService.sendMessage({
+            conversation_id: currentConvId,
+            sender_id: userProfile?.id?.toString(),
+            sender_name: userProfile?.name || 'Guest User',
+            sender_type: 'user',
+            message_text: trimmed,
+          });
+        }
+        
+        // Add system message indicating connection to human operator
+        const systemMsg: LocalChatMessage = {
+          id: `s-${Date.now()}`,
+          from: "bot" as const,
+          text: "Your message has been sent to our support team. An operator will respond shortly.",
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, systemMsg].slice(-MAX_HISTORY));
+        
+      } catch (error) {
+        console.error('Failed to send real-time message:', error);
+        // Fall back to bot response
+        const botMsg: LocalChatMessage = {
+          id: `b-${Date.now()}`,
+          from: "bot" as const,
+          text: "Sorry, there was an error connecting to our support team. " + generateBotReply(trimmed),
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
+      }
+    } else {
+      // Use simulated bot for incident-related chats
+      setTimeout(() => {
+        const botMsg: LocalChatMessage = {
+          id: `b-${Date.now()}`,
+          from: "bot" as const,
+          text: generateBotReply(trimmed),
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
+      }, 900);
+    }
   };
 
   const handleReset = async () => {
@@ -314,7 +423,7 @@ export default function ChatScreen() {
         ...prev,
         {
           id: `s-${Date.now()}`,
-          from: "bot",
+          from: "bot" as const,
           text: statusMessage,
           sentAt: Date.now(),
         },
