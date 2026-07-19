@@ -54,6 +54,7 @@ export default function MeScreen() {
     alertPreferences,
     updateAlertPreferences,
     incidentHistory,
+    updateIncidentHistory,
   } = usePreferences();
   const { t } = useTranslate();
 
@@ -217,6 +218,14 @@ export default function MeScreen() {
         },
       ],
     );
+  };
+
+  const handleViewHistory = () => {
+    if (!isLoggedIn) {
+      Alert.alert("Login Required", "Please log in to view your history.");
+      return;
+    }
+    router.push("/history" as any);
   };
 
   useEffect(() => {
@@ -581,12 +590,7 @@ export default function MeScreen() {
           <SettingsMenuItem
             label="View Full History"
             icon="list.bullet"
-            onPress={() =>
-              Alert.alert(
-                getTranslation("stay_informed", language as any),
-                getTranslation("help_is_on_the_way", language as any),
-              )
-            }
+            onPress={handleViewHistory}
           />
         </SettingsSection>
 
@@ -1100,6 +1104,96 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  historyModal: {
+    borderRadius: 20,
+    padding: 20,
+    width: "90%",
+    maxWidth: 500,
+    maxHeight: "80%",
+  },
+  historyHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  historyTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  historyLoading: {
+    padding: 40,
+    alignItems: "center",
+  },
+  historyLoadingText: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 12,
+  },
+  historyContent: {
+    flex: 1,
+    maxHeight: 500,
+  },
+  historySection: {
+    marginBottom: 24,
+  },
+  historySectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 12,
+  },
+  historyStats: {
+    flexDirection: "row",
+    gap: 16,
+    marginBottom: 16,
+  },
+  historyStat: {
+    flex: 1,
+    backgroundColor: "rgba(58, 118, 117, 0.1)",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  historyStatValue: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: TealColors.primary,
+  },
+  historyStatLabel: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+  },
+  historyRecent: {
+    marginTop: 12,
+  },
+  historyRecentTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+    color: "#666",
+  },
+  historyItem: {
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  historyItemTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  historyItemDesc: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 4,
+  },
+  historyItemStatus: {
+    fontSize: 12,
+    color: TealColors.primary,
+    fontWeight: "600",
   },
   passwordModal: {
     borderRadius: 16,

@@ -776,8 +776,8 @@ export default function NotificationScreen() {
       setAlertsError("");
 
       try {
-        console.log("📡 Making API call to / endpoint");
-        const response = await apiClient.get("/");
+        console.log("📡 Making API call to /alerts endpoint");
+        const response = await apiClient.get("/alerts/get_alerts.php");
         console.log("✅ API call successful, processing response...");
         console.log("📄 Raw response data:", response.data);
 

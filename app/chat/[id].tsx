@@ -8,32 +8,33 @@ import { useTranslate } from "@/hooks/useTranslate";
 import type { ChatMessage as ApiChatMessage } from "@/services/api/chat-service";
 import { chatService } from "@/services/api/chat-service";
 import {
-    emergencyReportService,
-    formatReportStatusLabel,
-    INCIDENT_STATUS_OPTIONS,
-    IncidentStatus,
-    parseReportIdFromThreadId,
-    statusLabelToKey,
-    statusToTranslationKey,
+  emergencyReportService,
+  formatReportStatusLabel,
+  INCIDENT_STATUS_OPTIONS,
+  IncidentStatus,
+  parseReportIdFromThreadId,
+  statusLabelToKey,
+  statusToTranslationKey,
 } from "@/services/api/emergency-report-service";
+import { mediaUploadService } from "@/services/api/media-upload-service";
 import { upsertConversationThread } from "@/utils/conversation-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
 } from "react-native";
 
 type LocalChatMessage = {
@@ -41,6 +42,8 @@ type LocalChatMessage = {
   from: "bot" | "user";
   text: string;
   sentAt: number;
+  attachmentUrl?: string;
+  attachmentType?: string;
 };
 
 const promptMap: Record<string, string[]> = {
@@ -115,6 +118,9 @@ export default function ChatScreen() {
   const [isRealTimeChat, setIsRealTimeChat] = useState(false);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
   const categoryLabel = category ? decodeURIComponent(category) : "General";
@@ -162,6 +168,8 @@ export default function ChatScreen() {
             from: msg.sender_type === 'admin' ? 'bot' : 'user',
             text: msg.message_text,
             sentAt: new Date(msg.created_at).getTime(),
+            attachmentUrl: msg.attachment_url,
+            attachmentType: msg.attachment_mime,
           }));
           
           setMessages(localMessages);
@@ -384,6 +392,100 @@ export default function ChatScreen() {
     ]);
   };
 
+  const handleMediaPicker = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant camera roll permissions to attach media.');
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        
+        // Validate file size (max 10MB)
+        if (asset.fileSize && !mediaUploadService.validateFileSize(asset.fileSize)) {
+          Alert.alert('File too large', 'Please select a file smaller than 10MB.');
+          return;
+        }
+
+        setSelectedMedia(asset);
+      }
+    } catch (error) {
+      console.error('Error picking media:', error);
+      Alert.alert('Error', 'Failed to pick media. Please try again.');
+    }
+  };
+
+  const handleMediaUpload = async () => {
+    if (!selectedMedia) return;
+
+    try {
+      setIsUploadingMedia(true);
+      setUploadProgress(0);
+
+      const uploadData = {
+        file: {
+          uri: selectedMedia.uri,
+          type: selectedMedia.mimeType || 'image/jpeg',
+          name: selectedMedia.fileName || `media_${Date.now()}.jpg`,
+          size: selectedMedia.fileSize,
+        },
+        conversation_id: conversationId || undefined,
+      };
+
+      const response = await mediaUploadService.uploadMedia(uploadData, (progress: any) => {
+        setUploadProgress(progress.percentage);
+      });
+
+      // Send message with media attachment
+      if (isGeneralSupport && isRealTimeChat && conversationId) {
+        await chatService.sendMessage({
+          conversation_id: conversationId,
+          sender_id: userProfile?.id,
+          sender_name: userProfile?.name || 'Guest User',
+          sender_type: 'user',
+          message_text: input || 'Sent an attachment',
+          attachment_url: response.file_url,
+          attachment_mime: response.file_type,
+          attachment_size: response.file_size,
+        });
+
+        // Add local message with media
+        const mediaMsg: LocalChatMessage = {
+          id: `m-${Date.now()}`,
+          from: "user",
+          text: input || 'Sent an attachment',
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, mediaMsg].slice(-MAX_HISTORY));
+      }
+
+      setSelectedMedia(null);
+      setInput('');
+      setUploadProgress(0);
+
+    } catch (error) {
+      console.error('Failed to upload media:', error);
+      Alert.alert('Upload failed', 'Failed to upload media. Please try again.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  const handleRemoveMedia = () => {
+    setSelectedMedia(null);
+  };
+
   const syncLastIncidentChatStatus = async (nextLabel: string) => {
     try {
       const saved = await AsyncStorage.getItem("last-incident-chat");
@@ -462,13 +564,8 @@ export default function ChatScreen() {
 
   return (
     <ThemedView style={[styles.container, { backgroundColor: screenBg }]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      >
-        <SafeAreaView style={{ flex: 1 }}>
-          <View style={styles.hero}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.hero}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <IconSymbol name="arrow.left" size={18} color="#ffffff" />
             </Pressable>
@@ -535,7 +632,7 @@ export default function ChatScreen() {
             </Pressable>
           </View>
 
-          <View style={[styles.threadCard, { backgroundColor: cardBg }]}>
+          <View style={[styles.threadCard, { backgroundColor: cardBg, flex: 1 }]}>
             <ScrollView
               ref={scrollRef}
               contentContainerStyle={styles.threadContent}
@@ -550,77 +647,116 @@ export default function ChatScreen() {
                       : [styles.botBubble, { backgroundColor: bubbleBot }],
                   ]}
                 >
-                  <ThemedText
-                    style={[
-                      styles.bubbleText,
-                      { color: m.from === "user" ? "#ffffff" : textColor },
-                    ]}
-                  >
-                    {m.text}
-                  </ThemedText>
+                  {m.attachmentUrl && (
+                    <Image 
+                      source={{ uri: m.attachmentUrl }} 
+                      style={styles.chatMedia}
+                      resizeMode="cover"
+                    />
+                  )}
+                  {m.text && (
+                    <ThemedText
+                      style={[
+                        styles.bubbleText,
+                        { color: m.from === "user" ? "#ffffff" : textColor },
+                      ]}
+                    >
+                      {m.text}
+                    </ThemedText>
+                  )}
                 </View>
               ))}
             </ScrollView>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.promptsScroller}
-            contentContainerStyle={styles.promptsRow}
-          >
-            {promptChips.map((chip) => (
+          <View style={styles.bottomSection}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.promptsScroller}
+              contentContainerStyle={styles.promptsRow}
+            >
+              {promptChips.map((chip) => (
+                <Pressable
+                  key={chip}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    {
+                      backgroundColor: pressed
+                        ? `${TealColors.primary}1A`
+                        : `${TealColors.primary}10`,
+                      borderColor: `${TealColors.primary}40`,
+                    },
+                  ]}
+                  onPress={() => send(chip)}
+                >
+                  <ThemedText style={styles.chipText}>{chip}</ThemedText>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* Media Preview */}
+            {selectedMedia && (
+              <View style={styles.mediaPreview}>
+                <Image 
+                  source={{ uri: selectedMedia.uri }} 
+                  style={styles.mediaThumbnail}
+                  resizeMode="cover"
+                />
+                <Pressable 
+                  style={styles.removeMediaBtn}
+                  onPress={handleRemoveMedia}
+                >
+                  <Ionicons name="close-circle" size={24} color="#ef4444" />
+                </Pressable>
+                {isUploadingMedia && (
+                  <View style={styles.uploadProgress}>
+                    <ActivityIndicator size="small" color={TealColors.primary} />
+                    <Text style={styles.uploadProgressText}>{uploadProgress}%</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <View style={[styles.composer, { backgroundColor: cardBg }]}>
+              <TextInput
+                value={input}
+                onChangeText={setInput}
+                placeholder="Ask a question..."
+                placeholderTextColor="#6b7280"
+                style={[styles.input, { color: textColor }]}
+                multiline
+              />
+              <View style={styles.composerIcons}>
+                <Pressable onPress={handleMediaPicker} style={styles.attachBtn}>
+                  <Ionicons name="attach" size={18} color="#6b7280" />
+                </Pressable>
+                <Pressable style={styles.attachBtn}>
+                  <Ionicons name="camera" size={18} color="#6b7280" />
+                </Pressable>
+                <Pressable style={styles.attachBtn}>
+                  <Ionicons name="mic" size={18} color="#6b7280" />
+                </Pressable>
+              </View>
               <Pressable
-                key={chip}
-                style={({ pressed }) => [
-                  styles.chip,
+                style={[
+                  styles.sendBtn,
                   {
-                    backgroundColor: pressed
-                      ? `${TealColors.primary}1A`
-                      : `${TealColors.primary}10`,
-                    borderColor: `${TealColors.primary}40`,
+                    opacity: (input.trim().length || selectedMedia) ? 1 : 0.4,
+                    borderColor: TealColors.primary,
                   },
                 ]}
-                onPress={() => send(chip)}
+                disabled={!input.trim().length && !selectedMedia}
+                onPress={() => selectedMedia ? handleMediaUpload() : send(input)}
               >
-                <ThemedText style={styles.chipText}>{chip}</ThemedText>
+                <IconSymbol
+                  name="paperplane.fill"
+                  size={18}
+                  color={TealColors.primary}
+                />
               </Pressable>
-            ))}
-          </ScrollView>
-
-          <View style={[styles.composer, { backgroundColor: cardBg }]}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Ask a question..."
-              placeholderTextColor="#6b7280"
-              style={[styles.input, { color: textColor }]}
-              multiline
-            />
-            <View style={styles.composerIcons}>
-              <Ionicons name="attach" size={18} color="#6b7280" />
-              <Ionicons name="camera" size={18} color="#6b7280" />
-              <Ionicons name="mic" size={18} color="#6b7280" />
             </View>
-            <Pressable
-              style={[
-                styles.sendBtn,
-                {
-                  opacity: input.trim().length ? 1 : 0.4,
-                  borderColor: TealColors.primary,
-                },
-              ]}
-              disabled={!input.trim().length}
-              onPress={() => send(input)}
-            >
-              <IconSymbol
-                name="paperplane.fill"
-                size={18}
-                color={TealColors.primary}
-              />
-            </Pressable>
           </View>
-        </SafeAreaView>
 
         <Modal
           visible={showStatusMenu}
@@ -688,23 +824,8 @@ export default function ChatScreen() {
             </Pressable>
           </Pressable>
         </Modal>
-      </KeyboardAvoidingView>
+      </SafeAreaView>
     </ThemedView>
-  );
-}
-
-function SafeHeader({ onBack }: { onBack: () => void }) {
-  return (
-    <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <Pressable
-        onPress={onBack}
-        style={{ paddingVertical: 6, paddingHorizontal: 4 }}
-      >
-        <ThemedText style={{ fontSize: 14, color: TealColors.primary }}>
-          ‹ Back
-        </ThemedText>
-      </Pressable>
-    </View>
   );
 }
 
@@ -715,38 +836,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 60,
     paddingBottom: 8,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
   backBtn: {
-    padding: 6,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    padding: 8,
+    backgroundColor: "rgba(255,255,255,0.18)",
     borderRadius: 10,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#e0f2f1",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
   },
   heroTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginTop: 2,
   },
   heroSubtitle: {
     fontSize: 12,
-    color: "#e0f2f1",
-    marginTop: 2,
-  },
-  statusLabel: {
-    fontSize: 11,
-    color: "#d7f7ee",
+    color: "#0f172a",
     marginTop: 4,
     opacity: 0.88,
   },
@@ -772,42 +889,44 @@ const styles = StyleSheet.create({
   },
   promptsRow: {
     paddingHorizontal: 12,
-    paddingTop: 0,
-    paddingBottom: 0,
-    gap: 6,
-    alignItems: "center",
+    gap: 8,
   },
   chip: {
     paddingHorizontal: 12,
-    paddingVertical: 1,
-    borderRadius: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
-    minHeight: 22,
-    justifyContent: "center",
   },
   chipText: {
-    fontSize: 11,
-    lineHeight: 12,
-    fontWeight: "600",
+    fontSize: 12,
     color: TealColors.primary,
+    fontWeight: "600",
   },
   threadCard: {
-    marginTop: 15,
-    flex: 1,
     marginHorizontal: 12,
-    marginBottom: 12,
-    padding: 1,
-    minHeight: 260,
+    marginVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.4)",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  bottomSection: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
   },
   threadContent: {
-    gap: 10,
-    paddingVertical: 4,
+    padding: 12,
+    gap: 12,
   },
   bubble: {
-    maxWidth: "80%",
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    maxWidth: "85%",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
   },
   userBubble: {
     alignSelf: "flex-end",
@@ -818,6 +937,12 @@ const styles = StyleSheet.create({
   bubbleText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  chatMedia: {
+    width: 200,
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   composer: {
     marginHorizontal: 12,
@@ -840,6 +965,43 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  attachBtn: {
+    padding: 8,
+  },
+  mediaPreview: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    position: 'relative',
+  },
+  mediaThumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  removeMediaBtn: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+  },
+  uploadProgress: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 4,
+    padding: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  uploadProgressText: {
+    color: '#ffffff',
+    fontSize: 10,
   },
   input: {
     flex: 1,
@@ -875,25 +1037,28 @@ const styles = StyleSheet.create({
   statusOption: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    gap: 12,
     paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   statusOptionText: {
     flex: 1,
     fontSize: 15,
-    fontWeight: "600",
   },
   statusCancel: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: "center",
-    paddingVertical: 12,
-    marginTop: 4,
   },
 });
+
+
+

@@ -5,24 +5,24 @@ import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
 import {
-  buildReportThreadId,
-  emergencyReportService,
-  formatReportStatusLabel,
-  mapIncidentTypeToReportType,
+    buildReportThreadId,
+    emergencyReportService,
+    formatReportStatusLabel,
+    mapIncidentTypeToReportType,
 } from "@/services/api/emergency-report-service";
 import { upsertConversationThread } from "@/utils/conversation-inbox";
 import {
-  buildReportDescription,
-  enqueueReportSubmission,
-  flushPendingReportQueue,
-  getPendingReportCount,
-  isRetriableSubmitError,
-  PENDING_SYNC_STATUS,
-  queuedReportToInboxThread,
+    buildReportDescription,
+    enqueueReportSubmission,
+    flushPendingReportQueue,
+    getPendingReportCount,
+    isRetriableSubmitError,
+    PENDING_SYNC_STATUS,
+    queuedReportToInboxThread,
 } from "@/utils/report-submit-queue";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Location from "expo-location";
 import { useFocusEffect } from "@react-navigation/native";
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -77,6 +77,8 @@ export default function ReportScreen() {
   const [locationNote, setLocationNote] = useState("Detecting location...");
   const [showDetails, setShowDetails] = useState(false);
   const [confirmation, setConfirmation] = useState("");
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [submissionPhase, setSubmissionPhase] = useState<"idle" | "sending" | "success" | "modal">("idle");
   const [locationCoords, setLocationCoords] = useState<LatLng>({
     latitude: 14.654459,
     longitude: 121.072997,
@@ -222,12 +224,8 @@ export default function ReportScreen() {
     );
     setLastIncidentChat(chatParams);
 
-    if (input.openChat !== false) {
-      router.push({
-        pathname: "/chat/[id]",
-        params: chatParams,
-      } as never);
-    }
+    // Show success modal instead of navigating to chat
+    setSuccessModalVisible(true);
   };
 
   const openPendingReportChat = async (
@@ -304,6 +302,7 @@ export default function ReportScreen() {
 
     setIsSubmitting(true);
     setConfirmation("");
+    setSubmissionPhase("sending");
 
     const icon =
       incidentTypes.find((item) => item.id === selectedType)?.icon ??
@@ -323,6 +322,15 @@ export default function ReportScreen() {
         user_id: userProfile?.id,
       });
 
+      // Show success checkmark animation
+      setSubmissionPhase("success");
+      
+      // Wait for checkmark animation, then show modal
+      setTimeout(() => {
+        setSubmissionPhase("modal");
+        setSuccessModalVisible(true);
+      }, 1500);
+
       await finalizeSuccessfulReport({
         threadId: buildReportThreadId(report.id),
         icon,
@@ -330,6 +338,7 @@ export default function ReportScreen() {
         submittedAt: report.created_at ?? new Date().toISOString(),
       });
     } catch (error) {
+      setSubmissionPhase("idle");
       if (isRetriableSubmitError(error)) {
         const queued = await enqueueReportSubmission({
           summary: summary.trim(),
@@ -892,6 +901,111 @@ export default function ReportScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      
+      {/* Loading Animation Overlay */}
+      {(submissionPhase === "sending" || submissionPhase === "success") && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContent}>
+            {submissionPhase === "sending" ? (
+              <>
+                <ActivityIndicator size="large" color={TealColors.primary} />
+                <ThemedText style={[styles.loadingText, { color: textColor }]}>
+                  {t("report.sending", "Sending Report...")}
+                </ThemedText>
+              </>
+            ) : (
+              <View style={styles.checkmarkContainer}>
+                <IconSymbol
+                  name="checkmark.circle.fill"
+                  size={80}
+                  color="#4caf50"
+                />
+                <ThemedText style={[styles.checkmarkText, { color: textColor }]}>
+                  {t("report.sent", "Report Sent!")}
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+      
+      <Modal
+        visible={successModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSuccessModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setSuccessModalVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.successModalCard,
+              { backgroundColor: cardBackground, borderColor },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.successModalContent}>
+              <View style={styles.successIconContainer}>
+                <IconSymbol
+                  name="checkmark.circle.fill"
+                  size={60}
+                  color="#4caf50"
+                />
+              </View>
+              <ThemedText style={[styles.successTitle, { color: textColor }]}>
+                {t("report.successTitle", "Report Submitted Successfully")}
+              </ThemedText>
+              <ThemedText style={[styles.successMessage, { color: textColor }]}>
+                {t("report.successMessage", "Your emergency report has been received. Emergency responders have been notified and are being dispatched to your location. Please stay safe and wait for further instructions.")}
+              </ThemedText>
+              <View style={styles.successActions}>
+                <Pressable
+                  style={[
+                    styles.successPrimaryButton,
+                    { backgroundColor: TealColors.primary },
+                  ]}
+                  onPress={() => {
+                    setSuccessModalVisible(false);
+                    setSubmissionPhase("idle");
+                    setConfirmation("");
+                    setSummary("");
+                    setDetails("");
+                    setSeverity("Medium");
+                    router.push("/(tabs)" as never);
+                  }}
+                >
+                  <Text style={styles.successPrimaryButtonText}>
+                    {t("report.returnToDashboard", "Return to Dashboard")}
+                  </Text>
+                </Pressable>
+                {lastIncidentChat && (
+                  <Pressable
+                    style={[
+                      styles.successSecondaryButton,
+                      { borderColor },
+                    ]}
+                    onPress={() => {
+                      setSuccessModalVisible(false);
+                      setSubmissionPhase("idle");
+                      router.push({
+                        pathname: "/chat/[id]",
+                        params: lastIncidentChat,
+                      } as never);
+                    }}
+                  >
+                    <Text style={[styles.successSecondaryButtonText, { color: textColor }]}>
+                      {t("report.viewReportChat", "View Report Chat")}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      
       <Pressable
         style={[
           styles.floatingButton,
@@ -1229,6 +1343,88 @@ const styles = StyleSheet.create({
   modalItemLabel: {
     fontSize: 14,
     fontWeight: "700",
+  },
+  successModalCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 24,
+    gap: 20,
+    maxWidth: 400,
+    width: "100%",
+    alignSelf: "center",
+  },
+  successModalContent: {
+    alignItems: "center",
+    gap: 16,
+  },
+  successIconContainer: {
+    marginBottom: 8,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  successMessage: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 22,
+    color: "#666",
+  },
+  successActions: {
+    width: "100%",
+    gap: 12,
+    marginTop: 8,
+  },
+  successPrimaryButton: {
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  successPrimaryButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  successSecondaryButton: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  successSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  loadingContent: {
+    alignItems: "center",
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+    marginTop: 12,
+  },
+  checkmarkContainer: {
+    alignItems: "center",
+    gap: 12,
+  },
+  checkmarkText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#4caf50",
   },
   mapPreview: {
     height: 190,
