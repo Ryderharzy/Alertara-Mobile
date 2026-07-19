@@ -159,20 +159,28 @@ export default function ChatScreen() {
           setConversationId(convId);
           setIsRealTimeChat(true);
           
-          // Load messages from backend
-          const apiMessages = await chatService.getMessages(convId, userProfile?.id);
-          
-          // Convert API messages to local format
-          const localMessages: LocalChatMessage[] = apiMessages.map((msg: ApiChatMessage) => ({
-            id: msg.message_id.toString(),
-            from: msg.sender_type === 'admin' ? 'bot' : 'user',
-            text: msg.message_text,
-            sentAt: new Date(msg.created_at).getTime(),
-            attachmentUrl: msg.attachment_url,
-            attachmentType: msg.attachment_mime,
-          }));
-          
-          setMessages(localMessages);
+          // Try to load messages to verify conversation is still open
+          try {
+            const apiMessages = await chatService.getMessages(convId, userProfile?.id);
+            
+            // Convert API messages to local format
+            const localMessages: LocalChatMessage[] = apiMessages.map((msg: ApiChatMessage) => ({
+              id: msg.message_id.toString(),
+              from: msg.sender_type === 'admin' ? 'bot' : 'user',
+              text: msg.message_text,
+              sentAt: new Date(msg.created_at).getTime(),
+              attachmentUrl: msg.attachment_url,
+              attachmentType: msg.attachment_mime,
+            }));
+            
+            setMessages(localMessages);
+          } catch (error) {
+            // If loading messages fails, conversation might be closed
+            console.error('Failed to load conversation messages, clearing ID:', error);
+            await AsyncStorage.removeItem(`conversation-${threadId}`);
+            setConversationId(null);
+            setIsRealTimeChat(true);
+          }
         } else {
           // No existing conversation, will create on first message
           setIsRealTimeChat(true);
@@ -357,6 +365,42 @@ export default function ChatScreen() {
         
       } catch (error) {
         console.error('Failed to send real-time message:', error);
+        
+        // Check if conversation is closed, clear it and try creating new one
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('closed conversation') && conversationId) {
+          console.log('Conversation closed, clearing stored ID and creating new one');
+          await AsyncStorage.removeItem(`conversation-${threadId}`);
+          setConversationId(null);
+          
+          // Try again with new conversation
+          try {
+            const newConv = await chatService.createConversation({
+              user_id: userProfile?.id,
+              user_name: userProfile?.name || 'Guest User',
+              user_email: userProfile?.email || undefined,
+              user_phone: userProfile?.phone || undefined,
+              user_concern: 'general',
+              is_guest: !userProfile?.id ? 1 : 0,
+              message: trimmed,
+            });
+            
+            setConversationId(newConv.conversation_id);
+            await AsyncStorage.setItem(`conversation-${threadId}`, newConv.conversation_id.toString());
+            
+            const systemMsg: LocalChatMessage = {
+              id: `s-${Date.now()}`,
+              from: "bot" as const,
+              text: "Your message has been sent to our support team. An operator will respond shortly.",
+              sentAt: Date.now(),
+            };
+            setMessages((prev) => [...prev, systemMsg].slice(-MAX_HISTORY));
+            return;
+          } catch (retryError) {
+            console.error('Failed to create new conversation:', retryError);
+          }
+        }
+        
         // Fall back to bot response
         const botMsg: LocalChatMessage = {
           id: `b-${Date.now()}`,
@@ -447,7 +491,7 @@ export default function ChatScreen() {
         setUploadProgress(progress.percentage);
       });
 
-      // Send message with media attachment
+      // For general support chats with real-time connection
       if (isGeneralSupport && isRealTimeChat && conversationId) {
         await chatService.sendMessage({
           conversation_id: conversationId,
@@ -459,16 +503,18 @@ export default function ChatScreen() {
           attachment_mime: response.file_type,
           attachment_size: response.file_size,
         });
-
-        // Add local message with media
-        const mediaMsg: LocalChatMessage = {
-          id: `m-${Date.now()}`,
-          from: "user",
-          text: input || 'Sent an attachment',
-          sentAt: Date.now(),
-        };
-        setMessages((prev) => [...prev, mediaMsg].slice(-MAX_HISTORY));
       }
+
+      // Add local message with media attachment for all chat types
+      const mediaMsg: LocalChatMessage = {
+        id: `m-${Date.now()}`,
+        from: "user",
+        text: input || 'Sent an attachment',
+        sentAt: Date.now(),
+        attachmentUrl: response.file_url,
+        attachmentType: response.file_type,
+      };
+      setMessages((prev) => [...prev, mediaMsg].slice(-MAX_HISTORY));
 
       setSelectedMedia(null);
       setInput('');

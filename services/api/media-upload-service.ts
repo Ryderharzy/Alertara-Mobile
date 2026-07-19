@@ -3,8 +3,7 @@
  * Handles file uploads for chat attachments and reports
  */
 
-import { apiClient } from './api-config';
-
+import { API_BASE_URL } from './api-config';
 export interface MediaUploadData {
   file: {
     uri: string;
@@ -49,65 +48,101 @@ function assertSuccess(body: ApiBody, fallbackMessage: string): void {
 
 export const mediaUploadService = {
   /**
-   * Upload media file to server
+   * Upload media file to server using native fetch
    */
   async uploadMedia(
     data: MediaUploadData,
     onProgress?: (progress: UploadProgress) => void
   ): Promise<MediaUploadResponse> {
     try {
-      const formData = new FormData();
+      console.log('📤 Uploading file:', {
+        uri: data.file.uri,
+        type: data.file.type,
+        name: data.file.name,
+        size: data.file.size,
+      });
+
+      // Build URL with query parameters
+      const url = new URL(`${API_BASE_URL}/reports/upload_media.php`);
+      url.searchParams.append('api_key', 'EMERGENCY-SYSTEM-INTEGRATED-KEY-2026');
       
-      // Append file
+      if (data.conversation_id) {
+        url.searchParams.append('conversation_id', data.conversation_id.toString());
+      }
+      if (data.report_id) {
+        url.searchParams.append('report_id', data.report_id.toString());
+      }
+
+      console.log('🚀 Starting upload to:', url.toString());
+
+      // Create FormData
+      const formData = new FormData();
       formData.append('file', {
         uri: data.file.uri,
         type: data.file.type,
         name: data.file.name,
       } as any);
-      
-      // Append optional identifiers
-      if (data.conversation_id) {
-        formData.append('conversation_id', data.conversation_id.toString());
-      }
-      if (data.report_id) {
-        formData.append('report_id', data.report_id.toString());
-      }
-      
-      const response = await apiClient.post<ApiBody>(
-        '/reports/upload_media.php',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-          onUploadProgress: (progressEvent) => {
-            if (onProgress && progressEvent.total) {
-              const percentage = Math.round(
-                (progressEvent.loaded * 100) / progressEvent.total
-              );
-              onProgress({
-                loaded: progressEvent.loaded,
-                total: progressEvent.total,
-                percentage,
+
+      // Upload using native fetch with XMLHttpRequest for progress
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.open('POST', url.toString());
+        xhr.setRequestHeader('Accept', 'application/json');
+        
+        xhr.upload.onprogress = (event) => {
+          if (onProgress && event.lengthComputable) {
+            const percentage = Math.round((event.loaded / event.total) * 100);
+            onProgress({
+              loaded: event.loaded,
+              total: event.total,
+              percentage,
+            });
+          }
+        };
+        
+        xhr.onload = () => {
+          console.log('📡 XHR status:', xhr.status);
+          console.log('📡 XHR response:', xhr.responseText);
+          
+          if (xhr.status === 200) {
+            try {
+              const body = JSON.parse(xhr.responseText);
+              console.log('✅ Upload response:', body);
+              assertSuccess(body, 'Failed to upload media.');
+              
+              resolve({
+                success: body.success ?? true,
+                message: body.message ?? 'File uploaded successfully',
+                file_url: body.file_url ?? '',
+                file_path: body.file_path ?? '',
+                file_size: body.file_size ?? 0,
+                file_type: body.file_type ?? '',
               });
+            } catch (e) {
+              console.error('❌ JSON parse error:', e);
+              reject(new Error('Invalid response from server'));
             }
-          },
-        }
-      );
-      
-      const body = response.data;
-      assertSuccess(body, 'Failed to upload media.');
-      
-      return {
-        success: body.success ?? true,
-        message: body.message ?? 'File uploaded successfully',
-        file_url: body.file_url ?? '',
-        file_path: body.file_path ?? '',
-        file_size: body.file_size ?? 0,
-        file_type: body.file_type ?? '',
-      };
+          } else {
+            console.error('❌ Upload failed with status:', xhr.status);
+            console.error('❌ Response body:', xhr.responseText);
+            reject(new Error(`Upload failed with status ${xhr.status}: ${xhr.responseText}`));
+          }
+        };
+        
+        xhr.onerror = () => {
+          console.error('❌ XHR error');
+          reject(new Error('Network error during upload'));
+        };
+        
+        xhr.send(formData);
+      });
     } catch (error) {
-      console.error('Failed to upload media:', error);
+      console.error('❌ Upload error details:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
       throw error;
     }
   },

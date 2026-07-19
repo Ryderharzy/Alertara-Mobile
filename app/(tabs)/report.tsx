@@ -10,6 +10,7 @@ import {
     formatReportStatusLabel,
     mapIncidentTypeToReportType,
 } from "@/services/api/emergency-report-service";
+import { mediaUploadService } from "@/services/api/media-upload-service";
 import { upsertConversationThread } from "@/utils/conversation-inbox";
 import {
     buildReportDescription,
@@ -22,11 +23,14 @@ import {
 } from "@/utils/report-submit-queue";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
+    Image,
     Modal,
     Platform,
     Pressable,
@@ -35,7 +39,7 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    View,
+    View
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -96,6 +100,10 @@ export default function ReportScreen() {
     status: string;
     icon: string;
   } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedMediaUrl, setUploadedMediaUrl] = useState<string | null>(null);
 
   const background = isDarkMode
     ? Colors.dark.background
@@ -183,6 +191,43 @@ export default function ReportScreen() {
     } finally {
       setIsRefreshingLocation(false);
     }
+  };
+
+  const handleMediaPicker = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant camera roll permissions to attach media.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        // Check file size - limit videos to 50MB
+        const maxSize = asset.type?.startsWith('video') ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (asset.fileSize && !mediaUploadService.validateFileSize(asset.fileSize, maxSize)) {
+          const maxSizeMB = asset.type?.startsWith('video') ? 50 : 10;
+          Alert.alert('File too large', `Please select a file smaller than ${maxSizeMB}MB.`);
+          return;
+        }
+        setSelectedMedia(asset);
+        // Reset uploaded URL when new media is selected
+        setUploadedMediaUrl(null);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick media. Please try again.');
+    }
+  };
+
+  const handleRemoveMedia = () => {
+    setSelectedMedia(null);
+    setUploadedMediaUrl(null);
+    setUploadProgress(0);
   };
 
   const finalizeSuccessfulReport = async (input: {
@@ -304,6 +349,38 @@ export default function ReportScreen() {
     setConfirmation("");
     setSubmissionPhase("sending");
 
+    // Upload media if selected
+    let mediaUrl = null;
+    if (selectedMedia && !uploadedMediaUrl) {
+      setIsUploadingMedia(true);
+      setUploadProgress(0);
+      try {
+        const uploadData = {
+          file: {
+            uri: selectedMedia.uri,
+            type: selectedMedia.mimeType || 'image/jpeg',
+            name: selectedMedia.fileName || `media_${Date.now()}.jpg`,
+            size: selectedMedia.fileSize,
+          },
+        };
+        const response = await mediaUploadService.uploadMedia(uploadData, (progress: any) => {
+          setUploadProgress(progress.percentage);
+        });
+        mediaUrl = response.file_url;
+        setUploadedMediaUrl(mediaUrl);
+      } catch (error) {
+        setSubmissionPhase("idle");
+        setIsUploadingMedia(false);
+        Alert.alert('Upload failed', 'Failed to upload media. Please try again or remove the attachment.');
+        setIsSubmitting(false);
+        return;
+      } finally {
+        setIsUploadingMedia(false);
+      }
+    } else if (uploadedMediaUrl) {
+      mediaUrl = uploadedMediaUrl;
+    }
+
     const icon =
       incidentTypes.find((item) => item.id === selectedType)?.icon ??
       "exclamationmark.triangle";
@@ -320,6 +397,7 @@ export default function ReportScreen() {
         latitude: locationCoords.latitude,
         longitude: locationCoords.longitude,
         user_id: userProfile?.id,
+        media_url: mediaUrl || undefined,
       });
 
       // Show success checkmark animation
@@ -820,9 +898,11 @@ export default function ReportScreen() {
             multiline
           />
           <Text style={styles.helperText}>{t("report.helper")}</Text>
+          
+          {/* Media Attachment Section */}
           <Pressable
             style={[styles.attachButton, { borderColor }]}
-            onPress={() => setShowDetails((prev) => !prev)}
+            onPress={handleMediaPicker}
           >
             <IconSymbol
               name="camera"
@@ -830,9 +910,44 @@ export default function ReportScreen() {
               color={isDarkMode ? "#fff" : "#111"}
             />
             <Text style={styles.attachText}>
-              {showDetails ? t("report.hideMedia") : t("report.attach")}
+              {selectedMedia ? "Change Media" : t("report.attach")}
             </Text>
           </Pressable>
+          
+          {selectedMedia && (
+            <View style={styles.mediaPreviewContainer}>
+              {selectedMedia.type?.startsWith('video') ? (
+                <View style={styles.videoPreview}>
+                  <IconSymbol name="play.circle" size={48} color={TealColors.primary} />
+                  <Text style={styles.videoText}>Video Selected</Text>
+                  <Text style={styles.mediaSizeText}>
+                    {mediaUploadService.formatFileSize(selectedMedia.fileSize || 0)}
+                  </Text>
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: selectedMedia.uri }}
+                  style={styles.mediaPreview}
+                  resizeMode="cover"
+                />
+              )}
+              {isUploadingMedia && (
+                <View style={styles.uploadProgressOverlay}>
+                  <ActivityIndicator color={TealColors.primary} />
+                  <Text style={styles.uploadProgressText}>
+                    Uploading... {uploadProgress}%
+                  </Text>
+                </View>
+              )}
+              <Pressable
+                style={styles.removeMediaButton}
+                onPress={handleRemoveMedia}
+              >
+                <IconSymbol name="xmark.circle.fill" size={24} color="#e53935" />
+              </Pressable>
+            </View>
+          )}
+          
           {showDetails && (
             <ThemedText style={styles.noteText}>
               {t("report.attachNote")}
@@ -1431,6 +1546,58 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginTop: 12,
     overflow: "hidden",
+  },
+  mediaPreviewContainer: {
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  mediaPreview: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+  },
+  videoPreview: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  videoText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  mediaSizeText: {
+    fontSize: 14,
+    color: "#666",
+  },
+  uploadProgressOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  uploadProgressText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  removeMediaButton: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 12,
   },
   floatingButton: {
     position: "absolute",
