@@ -58,10 +58,10 @@ export default function EcsHome() {
       {
         title: "Two-Way Feedback",
         icon: "bubble.left.and.bubble.right",
-        desc: "Report an incident and chat for instructions, updates, and next steps.",
+        desc: "Report an incident, chat for updates, and manage all threads in Messages.",
         access: "user",
-        userRoute: "/report",
-        userCtaLabel: "Report Incident",
+        userRoute: "/(tabs)/messages",
+        userCtaLabel: "Open Messages",
       },
       {
         title: "Language Support",
@@ -82,10 +82,10 @@ export default function EcsHome() {
       {
         title: "My History",
         icon: "doc.text.magnifyingglass",
-        desc: "Review your past reports and conversations.",
+        desc: "Review your past reports and conversations in the Messages inbox.",
         access: "user",
-        userRoute: "/report-history",
-        userCtaLabel: "Open History",
+        userRoute: "/(tabs)/messages",
+        userCtaLabel: "Open Messages",
       },
     ],
     [],

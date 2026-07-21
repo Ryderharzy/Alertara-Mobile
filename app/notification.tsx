@@ -1,29 +1,31 @@
-﻿import { ThemedText } from "@/components/themed-text";
+import { ThemedText } from "@/components/themed-text";
 import { IconSymbol, IconSymbolName } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
 import { getTranslation } from "@/data/emergency-translations";
 import {
-  NOTIFICATION_ACK_STORAGE_KEY,
-  NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
+    NOTIFICATION_ACK_STORAGE_KEY,
+    NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
 } from "@/data/notification-center";
+import { alertAcknowledgmentService } from "@/services/api/alert-acknowledgment-service";
 import { apiClient } from "@/services/api/api-config";
 import { FontAwesome, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated,
-  Easing,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  UIManager,
-  View,
+    Animated,
+    Easing,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    UIManager,
+    View,
 } from "react-native";
 
 const LOCAL_NEWS_CACHE_KEY = "@alertara_local_news_cache";
@@ -536,7 +538,8 @@ const NotificationCard = ({
 export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
   const router = useRouter();
-  const { language } = usePreferences();
+  const { language, alertPreferences } = usePreferences();
+  const { userProfile } = useAuth();
   const gnewsApiKey = process.env.EXPO_PUBLIC_GNEWS_API_KEY;
   const newsdataApiKey = process.env.EXPO_PUBLIC_NEWSDATA_API_KEY;
   
@@ -648,17 +651,48 @@ export default function NotificationScreen() {
     return filtered;
   }, [allNotifications, backendAlerts, localNewsItems, healthNewsItems, selectedCategory]);
 
+  // Filter notifications based on user preferences
+  const filteredByPreferences = useMemo(() => {
+    return selectedCategoryItems.filter((alert) => {
+      const alertCategory = (alert.category || "").toLowerCase();
+      const alertTitle = alert.title.toLowerCase();
+      
+      // Check if alert category matches user preferences
+      if (alertCategory.includes("crime") || alertCategory.includes("security") || alertTitle.includes("crime")) {
+        return alertPreferences.crimes;
+      }
+      if (alertCategory.includes("emergency") || alertCategory.includes("alert") || alertTitle.includes("emergency")) {
+        return alertPreferences.emergencies;
+      }
+      if (alertCategory.includes("community") || alertTitle.includes("community")) {
+        return alertPreferences.communityAlerts;
+      }
+      if (alertCategory.includes("weather") || alertCategory.includes("forecast") || alertCategory.includes("storm") || alertTitle.includes("weather")) {
+        return alertPreferences.weather;
+      }
+      if (alertCategory.includes("traffic") || alertCategory.includes("road") || alertCategory.includes("accident") || alertTitle.includes("traffic")) {
+        return alertPreferences.traffic;
+      }
+      if (alertCategory.includes("health") || alertCategory.includes("medical") || alertTitle.includes("health")) {
+        return alertPreferences.health;
+      }
+      
+      // Default: show if no specific preference matches
+      return true;
+    });
+  }, [selectedCategoryItems, alertPreferences]);
+
   const visibleNotifications = useMemo(() => {
     const normalizedSearch = normalizeSearchValue(searchQuery);
 
     if (!normalizedSearch) {
-      return selectedCategoryItems;
+      return filteredByPreferences;
     }
 
-    return selectedCategoryItems.filter((alert) =>
+    return filteredByPreferences.filter((alert) =>
       matchesAlertSearch(alert, normalizedSearch),
     );
-  }, [searchQuery, selectedCategoryItems]);
+  }, [searchQuery, filteredByPreferences]);
 
   const categoryUnreadCounts = useMemo(() => {
     return categoryTabs.reduce<Record<string, number>>((counts, category) => {
@@ -742,8 +776,8 @@ export default function NotificationScreen() {
       setAlertsError("");
 
       try {
-        console.log("📡 Making API call to / endpoint");
-        const response = await apiClient.get("/");
+        console.log("📡 Making API call to /alerts endpoint");
+        const response = await apiClient.get("/alerts/get_alerts.php");
         console.log("✅ API call successful, processing response...");
         console.log("📄 Raw response data:", response.data);
 
@@ -839,7 +873,7 @@ export default function NotificationScreen() {
         if (gnewsApiKey) {
           try {
             const params = new URLSearchParams({
-              q: 'Philippines',
+              q: 'Quezon City OR "Metro Manila" OR Philippines',
               lang: "en",
               max: "6",
               sortby: "publishedAt",
@@ -870,7 +904,7 @@ export default function NotificationScreen() {
         // Fallback to NewsData if GNews failed or no key
         if (articles.length === 0) {
           articles = await fetchFromNewsDataAPI(
-            'Philippines',
+            'Quezon City OR "Metro Manila" OR Philippines',
             newsdataApiKey
           );
           sourceName = "NewsData";
@@ -1075,22 +1109,27 @@ export default function NotificationScreen() {
     };
   }, [gnewsApiKey, newsdataApiKey]);
 
-  const handleGeneralChat = () =>
-    router.push({
-      pathname: "/chat/[id]",
-      params: {
-        id: "general",
-        title: "General Support",
-        category: "General",
-        status: "Active",
-        icon: "robot",
-      },
-    } as never);
+  const handleGeneralChat = () => router.push("/messages");
 
   const handleAcknowledge = (alertId: string) => {
     setAcknowledgedIds((current) =>
       current.includes(alertId) ? current : [...current, alertId],
     );
+
+    // Sync to backend if user is logged in
+    if (userProfile?.id) {
+      const numericAlertId = parseInt(alertId, 10);
+      if (!isNaN(numericAlertId)) {
+        alertAcknowledgmentService.acknowledgeAlert({
+          alert_id: numericAlertId,
+          user_id: userProfile.id,
+          response_status: citizenResponses[alertId] || 'safe',
+        }).catch((error: unknown) => {
+          console.error("Failed to sync alert acknowledgment to backend:", error);
+          // Don't throw error - local state update succeeded
+        });
+      }
+    }
   };
 
   const handleSetResponseStatus = (alertId: string, status: CitizenStatus) => {

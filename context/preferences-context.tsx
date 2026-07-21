@@ -1,3 +1,5 @@
+import { useAuth } from "@/context/auth-context";
+import { userPreferenceService } from "@/services/api/user-preference-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
@@ -11,8 +13,12 @@ type PreferencesContextType = {
     crimes: boolean;
     emergencies: boolean;
     communityAlerts: boolean;
+    weather: boolean;
+    traffic: boolean;
+    health: boolean;
     email: boolean;
     sms: boolean;
+    push: boolean;
   };
   incidentHistory: {
     calls: number;
@@ -38,14 +44,19 @@ export const PreferencesProvider = ({
 }: {
   children: React.ReactNode;
 }) => {
+  const { userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguageState] = useState<LanguageOption>("en");
   const [alertPreferences, setAlertPreferencesState] = useState({
     crimes: true,
     emergencies: true,
     communityAlerts: true,
+    weather: true,
+    traffic: true,
+    health: true,
     email: false,
     sms: false,
+    push: true,
   });
   const [incidentHistory, setIncidentHistoryState] = useState({
     calls: 0,
@@ -83,6 +94,30 @@ export const PreferencesProvider = ({
       try {
         setLanguageState(lang);
         await AsyncStorage.setItem("language", lang);
+
+        // Sync to backend if user is logged in
+        if (userProfile?.id) {
+          try {
+            await userPreferenceService.savePreferences({
+              user_id: userProfile.id,
+              preferred_language: lang,
+              sms_notifications: alertPreferences.sms,
+              email_notifications: alertPreferences.email,
+              push_notifications: alertPreferences.push,
+              alert_categories: JSON.stringify({
+                crimes: alertPreferences.crimes,
+                emergencies: alertPreferences.emergencies,
+                community: alertPreferences.communityAlerts,
+                weather: alertPreferences.weather,
+                traffic: alertPreferences.traffic,
+                health: alertPreferences.health,
+              }),
+            });
+          } catch (backendError) {
+            console.error("Failed to sync language to backend:", backendError);
+            // Don't throw error - local storage update succeeded
+          }
+        }
       } catch (error) {
         console.error("Failed to set language:", error);
         throw error;
@@ -95,6 +130,30 @@ export const PreferencesProvider = ({
         const updated = { ...alertPreferences, ...prefs };
         setAlertPreferencesState(updated);
         await AsyncStorage.setItem("alertPreferences", JSON.stringify(updated));
+
+        // Sync to backend if user is logged in
+        if (userProfile?.id) {
+          try {
+            await userPreferenceService.savePreferences({
+              user_id: userProfile.id,
+              preferred_language: language,
+              sms_notifications: updated.sms,
+              email_notifications: updated.email,
+              push_notifications: updated.push,
+              alert_categories: JSON.stringify({
+                crimes: updated.crimes,
+                emergencies: updated.emergencies,
+                community: updated.communityAlerts,
+                weather: updated.weather,
+                traffic: updated.traffic,
+                health: updated.health,
+              }),
+            });
+          } catch (backendError) {
+            console.error("Failed to sync alert preferences to backend:", backendError);
+            // Don't throw error - local storage update succeeded
+          }
+        }
       } catch (error) {
         console.error("Failed to update alert preferences:", error);
         throw error;

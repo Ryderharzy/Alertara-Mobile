@@ -5,9 +5,11 @@ import { BottomNav } from "@/components/bottom-nav";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
+import { useTranslate } from "@/hooks/useTranslate";
 
 export default function TabLayout() {
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
 
   return (
     <Tabs
@@ -26,7 +28,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: t("nav.home"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="house" color={color} />
           ),
@@ -36,7 +38,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          title: "Map",
+          title: t("nav.map"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="map" color={color} />
           ),
@@ -44,9 +46,17 @@ export default function TabLayout() {
       />
 
       <Tabs.Screen
+        name="messages"
+        options={{
+          title: t("nav.messages"),
+          tabBarButton: () => null,
+        }}
+      />
+
+      <Tabs.Screen
         name="call"
         options={{
-          title: "Call",
+          title: t("nav.call"),
           tabBarButton: () => null,
         }}
       />
@@ -54,7 +64,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="report"
         options={{
-          title: "Report",
+          title: t("nav.report"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="exclamationmark.triangle" color={color} />
           ),
@@ -64,7 +74,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="me"
         options={{
-          title: "Profile",
+          title: t("nav.profile"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="person" color={color} />
           ),

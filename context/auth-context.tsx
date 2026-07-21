@@ -1,7 +1,12 @@
+import { activityService } from "@/services/api/activity-service";
 import { apiClient } from "@/services/api/api-config";
+import { deviceService } from "@/services/api/device-service";
+import { locationService } from "@/services/api/location-service";
+import { sessionService } from "@/services/api/session-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { Platform } from "react-native";
 
 type SignUpData = {
   name: string;
@@ -25,6 +30,9 @@ type AuthContextType = {
   activateSession: (user: UserProfile) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: () => Promise<void>;
+  updateProfile: (data: Partial<UserProfile> & { user_id: number }) => Promise<UserProfile>;
+  saveUserLocation: (latitude: number, longitude: number, address?: string) => Promise<void>;
+  logActivity: (activityType: string, description?: string, status?: string, metadata?: Record<string, any>) => Promise<void>;
 };
 
 type UserProfile = {
@@ -77,6 +85,123 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     bootstrapAsync();
   }, []);
+
+  const getDeviceId = async (): Promise<string> => {
+    try {
+      const existingDeviceId = await AsyncStorage.getItem("deviceId");
+      if (existingDeviceId) {
+        return existingDeviceId;
+      }
+      
+      // Generate a new device ID
+      const newDeviceId = `${Platform.OS}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      await AsyncStorage.setItem("deviceId", newDeviceId);
+      return newDeviceId;
+    } catch (error) {
+      console.error("Failed to get/generate device ID:", error);
+      return `unknown-${Platform.OS}-${Date.now()}`;
+    }
+  };
+
+  const generateSessionToken = async (): Promise<string> => {
+    try {
+      const existingToken = await AsyncStorage.getItem("sessionToken");
+      if (existingToken) {
+        return existingToken;
+      }
+      
+      // Generate a new session token
+      const newToken = `session-${Date.now()}-${Math.random().toString(36).substr(2, 16)}`;
+      await AsyncStorage.setItem("sessionToken", newToken);
+      return newToken;
+    } catch (error) {
+      console.error("Failed to get/generate session token:", error);
+      return `session-${Date.now()}-${Math.random().toString(36).substr(2, 16)}`;
+    }
+  };
+
+  const registerDevice = async (userId: number): Promise<void> => {
+    try {
+      const deviceId = await getDeviceId();
+      const deviceType = Platform.OS;
+      
+      await deviceService.registerDevice({
+        user_id: userId,
+        device_id: deviceId,
+        device_type: deviceType,
+        device_name: `${Platform.OS} Device`,
+      });
+      
+      console.log("Device registered successfully");
+    } catch (error) {
+      console.error("Device registration failed:", error);
+      // Don't throw error - device registration shouldn't block auth
+    }
+  };
+
+  const createSession = async (userId: number, sessionToken: string): Promise<void> => {
+    try {
+      await sessionService.createSession({
+        user_id: userId,
+        session_token: sessionToken,
+        device_type: Platform.OS,
+      });
+      
+      console.log("Session created successfully");
+    } catch (error) {
+      console.error("Session creation failed:", error);
+      // Don't throw error - session creation shouldn't block auth
+    }
+  };
+
+  const endSession = async (sessionToken: string): Promise<void> => {
+    try {
+      if (userProfile) {
+        await sessionService.endSession(userProfile.id, sessionToken);
+        console.log("Session ended successfully");
+      }
+    } catch (error) {
+      console.error("Session termination failed:", error);
+      // Don't throw error - session termination shouldn't block auth
+    }
+  };
+
+  const saveUserLocation = async (latitude: number, longitude: number, address?: string): Promise<void> => {
+    try {
+      if (userProfile) {
+        await locationService.saveLocation({
+          user_id: userProfile.id,
+          latitude,
+          longitude,
+          address,
+          source: 'gps',
+          is_current: 1,
+        });
+        console.log("Location saved successfully");
+      }
+    } catch (error) {
+      console.error("Location save failed:", error);
+      // Don't throw error - location save shouldn't block auth
+    }
+  };
+
+  const logActivity = async (activityType: string, description?: string, status = 'success', metadata?: Record<string, any>): Promise<void> => {
+    try {
+      if (userProfile) {
+        await activityService.logActivity({
+          user_id: userProfile.id,
+          activity_type: activityType,
+          description,
+          status,
+          metadata,
+        });
+        console.log("Activity logged successfully");
+      }
+    } catch (error) {
+      console.error("Activity logging failed:", error);
+      // Don't throw error - activity logging shouldn't block auth
+    }
+  };
 
   const getApiErrorMessage = (error: unknown): string => {
     if (axios.isAxiosError(error)) {
@@ -134,7 +259,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     onboardingCompleted,
     signIn: async (email: string, password: string) => {
       try {
-        const response = await apiClient.post("/login", {
+        const response = await apiClient.post("/auth/login.php", {
           email,
           password,
         });
@@ -151,7 +276,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     },
     signUp: async (data: SignUpData) => {
       try {
-        const response = await apiClient.post("/register", {
+        const response = await apiClient.post("/auth/register.php", {
           name: data.name,
           email: data.email,
           password: data.password,
@@ -176,16 +301,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     activateSession: async (user: UserProfile) => {
       setUserProfile(user);
       await AsyncStorage.setItem("userProfile", JSON.stringify(user));
+      // Register device when session is activated
+      await registerDevice(user.id);
+      // Create session when session is activated
+      const sessionToken = await generateSessionToken();
+      await createSession(user.id, sessionToken);
+      // Log login activity
+      await logActivity('login', 'User logged in successfully', 'success', { user_id: user.id });
     },
     signOut: async () => {
       try {
         try {
-          await apiClient.post("/logout");
+          await apiClient.post("/auth/logout.php");
         } catch (logoutError) {
           console.warn(
             "Logout API call failed, continuing local sign-out:",
             logoutError,
           );
+        }
+
+        // End session on logout
+        try {
+          const sessionToken = await AsyncStorage.getItem("sessionToken");
+          if (sessionToken) {
+            await endSession(sessionToken);
+            await AsyncStorage.removeItem("sessionToken");
+          }
+        } catch (sessionError) {
+          console.warn("Session termination failed, continuing sign-out:", sessionError);
+        }
+
+        // Deactivate device on logout
+        try {
+          const deviceId = await getDeviceId();
+          if (userProfile) {
+            await deviceService.deactivateDevice(userProfile.id, deviceId);
+            console.log("Device deactivated successfully");
+          }
+        } catch (deviceError) {
+          console.warn("Device deactivation failed, continuing sign-out:", deviceError);
         }
 
         setUserToken(null);
@@ -206,6 +360,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         throw error;
       }
     },
+    updateProfile: async (data: Partial<UserProfile> & { user_id: number }) => {
+      try {
+        const response = await apiClient.post("/auth/update_profile.php", data);
+        const updatedUser = response.data.user as UserProfile;
+        if (!updatedUser) {
+          throw new Error("Profile update succeeded but no user data was returned.");
+        }
+        setUserProfile(updatedUser);
+        await AsyncStorage.setItem("userProfile", JSON.stringify(updatedUser));
+        return updatedUser;
+      } catch (error) {
+        console.error("Profile update failed:", error);
+        throw new Error(getApiErrorMessage(error));
+      }
+    },
+    saveUserLocation,
+    logActivity,
   };
 
   return (

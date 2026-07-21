@@ -1,14 +1,36 @@
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
+import {
+    buildReportThreadId,
+    emergencyReportService,
+    formatReportStatusLabel,
+    mapIncidentTypeToReportType,
+} from "@/services/api/emergency-report-service";
+import { mediaUploadService } from "@/services/api/media-upload-service";
+import { upsertConversationThread } from "@/utils/conversation-inbox";
+import {
+    buildReportDescription,
+    enqueueReportSubmission,
+    flushPendingReportQueue,
+    getPendingReportCount,
+    isRetriableSubmitError,
+    PENDING_SYNC_STATUS,
+    queuedReportToInboxThread,
+} from "@/utils/report-submit-queue";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
+    Image,
     Modal,
     Platform,
     Pressable,
@@ -17,7 +39,7 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    View,
+    View
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,8 +49,6 @@ type LatLng = {
   longitude: number;
 };
 
-const INCIDENT_INDEX_KEY = "incident-chat-index";
-const STATUS_PENDING = "Pending";
 
 const formatCoordsDescription = (coords: LatLng) =>
   `${coords.latitude.toFixed(3)}, ${coords.longitude.toFixed(3)}`;
@@ -51,6 +71,7 @@ const formatAddress = (address: Location.LocationGeocodedAddress) => {
 export default function ReportScreen() {
   const { isDarkMode } = useTheme();
   const { t } = useTranslate();
+  const { userProfile } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [summary, setSummary] = useState("");
@@ -60,6 +81,8 @@ export default function ReportScreen() {
   const [locationNote, setLocationNote] = useState("Detecting location...");
   const [showDetails, setShowDetails] = useState(false);
   const [confirmation, setConfirmation] = useState("");
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [submissionPhase, setSubmissionPhase] = useState<"idle" | "sending" | "success" | "modal">("idle");
   const [locationCoords, setLocationCoords] = useState<LatLng>({
     latitude: 14.654459,
     longitude: 121.072997,
@@ -68,6 +91,8 @@ export default function ReportScreen() {
   const [locationWarning, setLocationWarning] = useState("");
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRetryingQueue, setIsRetryingQueue] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const [lastIncidentChat, setLastIncidentChat] = useState<{
     id: string;
     title: string;
@@ -75,6 +100,10 @@ export default function ReportScreen() {
     status: string;
     icon: string;
   } | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedMediaUrl, setUploadedMediaUrl] = useState<string | null>(null);
 
   const background = isDarkMode
     ? Colors.dark.background
@@ -164,76 +193,275 @@ export default function ReportScreen() {
     }
   };
 
+  const handleMediaPicker = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant camera roll permissions to attach media.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        // Check file size - limit videos to 50MB
+        const maxSize = asset.type?.startsWith('video') ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (asset.fileSize && !mediaUploadService.validateFileSize(asset.fileSize, maxSize)) {
+          const maxSizeMB = asset.type?.startsWith('video') ? 50 : 10;
+          Alert.alert('File too large', `Please select a file smaller than ${maxSizeMB}MB.`);
+          return;
+        }
+        setSelectedMedia(asset);
+        // Reset uploaded URL when new media is selected
+        setUploadedMediaUrl(null);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick media. Please try again.');
+    }
+  };
+
+  const handleRemoveMedia = () => {
+    setSelectedMedia(null);
+    setUploadedMediaUrl(null);
+    setUploadProgress(0);
+  };
+
+  const finalizeSuccessfulReport = async (input: {
+    threadId: string;
+    icon: string;
+    statusLabel: string;
+    submittedAt: string;
+    openChat?: boolean;
+  }) => {
+    const chatParams = {
+      id: input.threadId,
+      title: encodeURIComponent(summary.trim() || "Incident Report"),
+      category: "Alert",
+      icon: input.icon,
+      status: input.statusLabel,
+    };
+
+    setConfirmation(t("report.confirmationOk"));
+    setShowDetails(false);
+
+    try {
+      await upsertConversationThread({
+        id: input.threadId,
+        title: summary.trim() || "Incident Report",
+        category: "Alert",
+        status: input.statusLabel,
+        icon: input.icon,
+        lastMessage: t("report.confirmationOk"),
+        lastMessageFrom: "system",
+        updatedAt: input.submittedAt,
+      });
+    } catch {
+      // ignore index write errors
+    }
+
+    await AsyncStorage.setItem(
+      "last-incident-chat",
+      JSON.stringify(chatParams),
+    );
+    setLastIncidentChat(chatParams);
+
+    // Show success modal instead of navigating to chat
+    setSuccessModalVisible(true);
+  };
+
+  const openPendingReportChat = async (
+    localId: string,
+    icon: string,
+    queuedMessage: string,
+  ) => {
+    const chatParams = {
+      id: localId,
+      title: encodeURIComponent(summary.trim() || "Incident Report"),
+      category: "Alert",
+      icon,
+      status: PENDING_SYNC_STATUS,
+    };
+
+    await AsyncStorage.setItem(
+      "last-incident-chat",
+      JSON.stringify(chatParams),
+    );
+    setLastIncidentChat(chatParams);
+    setConfirmation(queuedMessage);
+    setShowDetails(false);
+    router.push({
+      pathname: "/chat/[id]",
+      params: chatParams,
+    } as never);
+  };
+
+  const refreshPendingCount = useCallback(async () => {
+    setPendingCount(await getPendingReportCount());
+  }, []);
+
+  const handleRetryQueue = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (isRetryingQueue) return;
+      const count = await getPendingReportCount();
+      if (!count) {
+        setPendingCount(0);
+        return;
+      }
+
+      setIsRetryingQueue(true);
+      try {
+        const result = await flushPendingReportQueue();
+        await refreshPendingCount();
+
+        if (result.synced > 0 && !options?.silent) {
+          setConfirmation(
+            t(
+              "report.queueSynced",
+              "{count} report(s) sent successfully.",
+            ).replace("{count}", String(result.synced)),
+          );
+        }
+
+        if (result.failed > 0 && !options?.silent) {
+          setConfirmation(
+            result.lastError ??
+              t(
+                "report.queueRetryFailed",
+                "Some reports are still waiting to send. Try again.",
+              ),
+          );
+        }
+      } finally {
+        setIsRetryingQueue(false);
+      }
+    },
+    [isRetryingQueue, refreshPendingCount, t],
+  );
+
   const handleSubmit = async () => {
     if (!summary.trim() || isSubmitting) return;
+
     setIsSubmitting(true);
     setConfirmation("");
-    try {
-      const incidentId = `incident-${Date.now()}`;
-      const payload = {
-        id: incidentId,
-        summary: summary.trim(),
-        details: details.trim(),
-        severity,
-        type: selectedType,
-        location: locationCoords,
-        submittedAt: new Date().toISOString(),
-        status: STATUS_PENDING,
-        icon:
-          incidentTypes.find((t) => t.id === selectedType)?.icon ??
-          "exclamationmark.triangle",
-      };
-      // Simulated send; replace with API call later
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setConfirmation(t("report.confirmationOk"));
-      setShowDetails(false);
-      const chatParams = {
-        id: payload.id,
-        title: encodeURIComponent(payload.summary || "Incident Report"),
-        category: "Alert",
-        icon: payload.icon,
-        status: payload.status,
-      };
-      // maintain local history index (most recent first, max 20)
+    setSubmissionPhase("sending");
+
+    // Upload media if selected
+    let mediaUrl = null;
+    if (selectedMedia && !uploadedMediaUrl) {
+      setIsUploadingMedia(true);
+      setUploadProgress(0);
       try {
-        const rawIndex = await AsyncStorage.getItem(INCIDENT_INDEX_KEY);
-        const parsed: {
-          id: string;
-          title: string;
-          category: string;
-          updatedAt: string;
-          icon?: string;
-          status?: string;
-        }[] = rawIndex ? JSON.parse(rawIndex) : [];
-        const filtered = parsed.filter((item) => item.id !== payload.id);
-        const next = [
-          {
-            ...chatParams,
-            updatedAt: payload.submittedAt,
-            status: payload.status,
-            icon: payload.icon,
+        const uploadData = {
+          file: {
+            uri: selectedMedia.uri,
+            type: selectedMedia.mimeType || 'image/jpeg',
+            name: selectedMedia.fileName || `media_${Date.now()}.jpg`,
+            size: selectedMedia.fileSize,
           },
-          ...filtered,
-        ].slice(0, 20);
-        await AsyncStorage.setItem(INCIDENT_INDEX_KEY, JSON.stringify(next));
-      } catch {
-        // ignore index write errors
+        };
+        const response = await mediaUploadService.uploadMedia(uploadData, (progress: any) => {
+          setUploadProgress(progress.percentage);
+        });
+        mediaUrl = response.file_url;
+        setUploadedMediaUrl(mediaUrl);
+      } catch (error) {
+        setSubmissionPhase("idle");
+        setIsUploadingMedia(false);
+        Alert.alert('Upload failed', 'Failed to upload media. Please try again or remove the attachment.');
+        setIsSubmitting(false);
+        return;
+      } finally {
+        setIsUploadingMedia(false);
       }
-      await AsyncStorage.setItem(
-        "last-incident-chat",
-        JSON.stringify(chatParams),
-      );
-      setLastIncidentChat(chatParams);
-      router.push({
-        pathname: "/chat/[id]",
-        params: chatParams,
-      } as never);
-    } catch {
-      setConfirmation(t("report.confirmationFail"));
+    } else if (uploadedMediaUrl) {
+      mediaUrl = uploadedMediaUrl;
+    }
+
+    const icon =
+      incidentTypes.find((item) => item.id === selectedType)?.icon ??
+      "exclamationmark.triangle";
+
+    try {
+      const report = await emergencyReportService.submitReport({
+        report_type: mapIncidentTypeToReportType(selectedType),
+        description: buildReportDescription({
+          summary,
+          details,
+          severity,
+          locationNote,
+        }),
+        latitude: locationCoords.latitude,
+        longitude: locationCoords.longitude,
+        user_id: userProfile?.id,
+        media_url: mediaUrl || undefined,
+      });
+
+      // Show success checkmark animation
+      setSubmissionPhase("success");
+      
+      // Wait for checkmark animation, then show modal
+      setTimeout(() => {
+        setSubmissionPhase("modal");
+        setSuccessModalVisible(true);
+      }, 1500);
+
+      await finalizeSuccessfulReport({
+        threadId: buildReportThreadId(report.id),
+        icon,
+        statusLabel: formatReportStatusLabel(report.status),
+        submittedAt: report.created_at ?? new Date().toISOString(),
+      });
+    } catch (error) {
+      setSubmissionPhase("idle");
+      if (isRetriableSubmitError(error)) {
+        const queued = await enqueueReportSubmission({
+          summary: summary.trim(),
+          details,
+          severity,
+          selectedType,
+          locationNote,
+          latitude: locationCoords.latitude,
+          longitude: locationCoords.longitude,
+          icon,
+          userId: userProfile?.id,
+          lastError:
+            error instanceof Error ? error.message : t("report.confirmationFail"),
+        });
+
+        await queuedReportToInboxThread(queued);
+        await refreshPendingCount();
+        await openPendingReportChat(
+          queued.localId,
+          icon,
+          t(
+            "report.queuedOffline",
+            "Saved offline. Your report will send automatically when connection returns.",
+          ),
+        );
+      } else {
+        setConfirmation(
+          error instanceof Error && error.message
+            ? error.message
+            : t("report.confirmationFail"),
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      void (async () => {
+        await refreshPendingCount();
+        await handleRetryQueue({ silent: true });
+      })();
+    }, [handleRetryQueue, refreshPendingCount]),
+  );
 
   useEffect(() => {
     let subscribed = true;
@@ -281,6 +509,54 @@ export default function ReportScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {pendingCount > 0 ? (
+          <Pressable
+            style={[
+              styles.queueBanner,
+              {
+                backgroundColor: isDarkMode ? "#3b2f14" : "#fff7e6",
+                borderColor: isDarkMode ? "#854d0e" : "#f59e0b",
+              },
+            ]}
+            onPress={() => void handleRetryQueue()}
+            disabled={isRetryingQueue}
+          >
+            <View style={styles.queueBannerLeft}>
+              <IconSymbol
+                name="clock.arrow.circlepath"
+                size={18}
+                color={isDarkMode ? "#fbbf24" : "#b45309"}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.queueBannerTitle,
+                    { color: isDarkMode ? "#fde68a" : "#92400e" },
+                  ]}
+                >
+                  {t(
+                    "report.queueBannerTitle",
+                    "{count} report(s) waiting to send",
+                  ).replace("{count}", String(pendingCount))}
+                </Text>
+                <Text
+                  style={[
+                    styles.queueBannerText,
+                    { color: isDarkMode ? "#fcd34d" : "#a16207" },
+                  ]}
+                >
+                  {isRetryingQueue
+                    ? t("report.queueRetrying", "Retrying now...")
+                    : t("report.queueBannerAction", "Tap to retry now")}
+                </Text>
+              </View>
+            </View>
+            {isRetryingQueue ? (
+              <ActivityIndicator color={TealColors.primary} />
+            ) : null}
+          </Pressable>
+        ) : null}
+
         <View
           style={[
             styles.heroCard,
@@ -311,7 +587,7 @@ export default function ReportScreen() {
                 backgroundColor: isDarkMode ? "#102026" : "#ffffff",
               },
             ]}
-            onPress={() => router.push("/report-history" as never)}
+            onPress={() => router.push("/(tabs)/messages" as never)}
           >
             <IconSymbol
               name="clock.arrow.circlepath"
@@ -622,9 +898,11 @@ export default function ReportScreen() {
             multiline
           />
           <Text style={styles.helperText}>{t("report.helper")}</Text>
+          
+          {/* Media Attachment Section */}
           <Pressable
             style={[styles.attachButton, { borderColor }]}
-            onPress={() => setShowDetails((prev) => !prev)}
+            onPress={handleMediaPicker}
           >
             <IconSymbol
               name="camera"
@@ -632,9 +910,44 @@ export default function ReportScreen() {
               color={isDarkMode ? "#fff" : "#111"}
             />
             <Text style={styles.attachText}>
-              {showDetails ? t("report.hideMedia") : t("report.attach")}
+              {selectedMedia ? "Change Media" : t("report.attach")}
             </Text>
           </Pressable>
+          
+          {selectedMedia && (
+            <View style={styles.mediaPreviewContainer}>
+              {selectedMedia.type?.startsWith('video') ? (
+                <View style={styles.videoPreview}>
+                  <IconSymbol name="play.circle" size={48} color={TealColors.primary} />
+                  <Text style={styles.videoText}>Video Selected</Text>
+                  <Text style={styles.mediaSizeText}>
+                    {mediaUploadService.formatFileSize(selectedMedia.fileSize || 0)}
+                  </Text>
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: selectedMedia.uri }}
+                  style={styles.mediaPreview}
+                  resizeMode="cover"
+                />
+              )}
+              {isUploadingMedia && (
+                <View style={styles.uploadProgressOverlay}>
+                  <ActivityIndicator color={TealColors.primary} />
+                  <Text style={styles.uploadProgressText}>
+                    Uploading... {uploadProgress}%
+                  </Text>
+                </View>
+              )}
+              <Pressable
+                style={styles.removeMediaButton}
+                onPress={handleRemoveMedia}
+              >
+                <IconSymbol name="xmark.circle.fill" size={24} color="#e53935" />
+              </Pressable>
+            </View>
+          )}
+          
           {showDetails && (
             <ThemedText style={styles.noteText}>
               {t("report.attachNote")}
@@ -703,6 +1016,111 @@ export default function ReportScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      
+      {/* Loading Animation Overlay */}
+      {(submissionPhase === "sending" || submissionPhase === "success") && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContent}>
+            {submissionPhase === "sending" ? (
+              <>
+                <ActivityIndicator size="large" color={TealColors.primary} />
+                <ThemedText style={[styles.loadingText, { color: textColor }]}>
+                  {t("report.sending", "Sending Report...")}
+                </ThemedText>
+              </>
+            ) : (
+              <View style={styles.checkmarkContainer}>
+                <IconSymbol
+                  name="checkmark.circle.fill"
+                  size={80}
+                  color="#4caf50"
+                />
+                <ThemedText style={[styles.checkmarkText, { color: textColor }]}>
+                  {t("report.sent", "Report Sent!")}
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+      
+      <Modal
+        visible={successModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSuccessModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setSuccessModalVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.successModalCard,
+              { backgroundColor: cardBackground, borderColor },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.successModalContent}>
+              <View style={styles.successIconContainer}>
+                <IconSymbol
+                  name="checkmark.circle.fill"
+                  size={60}
+                  color="#4caf50"
+                />
+              </View>
+              <ThemedText style={[styles.successTitle, { color: textColor }]}>
+                {t("report.successTitle", "Report Submitted Successfully")}
+              </ThemedText>
+              <ThemedText style={[styles.successMessage, { color: textColor }]}>
+                {t("report.successMessage", "Your emergency report has been received. Emergency responders have been notified and are being dispatched to your location. Please stay safe and wait for further instructions.")}
+              </ThemedText>
+              <View style={styles.successActions}>
+                <Pressable
+                  style={[
+                    styles.successPrimaryButton,
+                    { backgroundColor: TealColors.primary },
+                  ]}
+                  onPress={() => {
+                    setSuccessModalVisible(false);
+                    setSubmissionPhase("idle");
+                    setConfirmation("");
+                    setSummary("");
+                    setDetails("");
+                    setSeverity("Medium");
+                    router.push("/(tabs)" as never);
+                  }}
+                >
+                  <Text style={styles.successPrimaryButtonText}>
+                    {t("report.returnToDashboard", "Return to Dashboard")}
+                  </Text>
+                </Pressable>
+                {lastIncidentChat && (
+                  <Pressable
+                    style={[
+                      styles.successSecondaryButton,
+                      { borderColor },
+                    ]}
+                    onPress={() => {
+                      setSuccessModalVisible(false);
+                      setSubmissionPhase("idle");
+                      router.push({
+                        pathname: "/chat/[id]",
+                        params: lastIncidentChat,
+                      } as never);
+                    }}
+                  >
+                    <Text style={[styles.successSecondaryButtonText, { color: textColor }]}>
+                      {t("report.viewReportChat", "View Report Chat")}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      
       <Pressable
         style={[
           styles.floatingButton,
@@ -744,6 +1162,30 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: 16,
     paddingBottom: 140, // overridden dynamically to account for tab bar + safe area
+  },
+  queueBanner: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  queueBannerLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  queueBannerTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  queueBannerText: {
+    fontSize: 12,
+    marginTop: 2,
   },
   hero: {
     flexDirection: "row",
@@ -1017,11 +1459,145 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
+  successModalCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 24,
+    gap: 20,
+    maxWidth: 400,
+    width: "100%",
+    alignSelf: "center",
+  },
+  successModalContent: {
+    alignItems: "center",
+    gap: 16,
+  },
+  successIconContainer: {
+    marginBottom: 8,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  successMessage: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 22,
+    color: "#666",
+  },
+  successActions: {
+    width: "100%",
+    gap: 12,
+    marginTop: 8,
+  },
+  successPrimaryButton: {
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  successPrimaryButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  successSecondaryButton: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  successSecondaryButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  loadingContent: {
+    alignItems: "center",
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+    marginTop: 12,
+  },
+  checkmarkContainer: {
+    alignItems: "center",
+    gap: 12,
+  },
+  checkmarkText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#4caf50",
+  },
   mapPreview: {
     height: 190,
     borderRadius: 16,
     marginTop: 12,
     overflow: "hidden",
+  },
+  mediaPreviewContainer: {
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  mediaPreview: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+  },
+  videoPreview: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  videoText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+  },
+  mediaSizeText: {
+    fontSize: 14,
+    color: "#666",
+  },
+  uploadProgressOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  uploadProgressText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  removeMediaButton: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 12,
   },
   floatingButton: {
     position: "absolute",

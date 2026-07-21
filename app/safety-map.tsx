@@ -6,23 +6,24 @@ import { TealColors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
 import { barangayWeatherPoints } from "@/data/barangay-weather-points";
 import { evacuationLocations, type EvacuationLocation } from "@/data/evacuation-locations";
+import { useTranslate } from "@/hooks/useTranslate";
 import { LocationService } from "@/services/location/location-service";
 import type { UserLocation } from "@/types/crime";
 import { calculateDistance, formatDistance } from "@/utils/geo-utils";
 import { getQCBoundaryCoordinates } from "@/utils/qc-boundary";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Animated,
-  Dimensions,
-  Easing,
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
+    ActivityIndicator,
+    Animated,
+    Dimensions,
+    Easing,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
 } from "react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 const EMPTY_CRIME_DATA: never[] = [];
 
@@ -405,6 +406,7 @@ async function fetchForecastWithRetry(
 
 export default function SafetyMapScreen() {
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
   const [showLegend, setShowLegend] = useState(false);
   const [layerVisibility, setLayerVisibility] = useState({
     alert: true,
@@ -1018,7 +1020,7 @@ export default function SafetyMapScreen() {
           onPress={handleFindMe}
         >
           <IconSymbol name="person.fill" size={16} color="#0E74FF" />
-          <ThemedText style={styles.quickActionText}>Find Me</ThemedText>
+          <ThemedText style={styles.quickActionText}>{t("map.findMe")}</ThemedText>
         </Pressable>
 
         <Pressable
@@ -1029,7 +1031,7 @@ export default function SafetyMapScreen() {
           onPress={handleNearestEvac}
         >
           <IconSymbol name="building" size={16} color="#B45309" />
-          <ThemedText style={styles.quickActionText}>Nearest Evac</ThemedText>
+          <ThemedText style={styles.quickActionText}>{t("map.nearestEvac")}</ThemedText>
         </Pressable>
       </View>
 
@@ -1047,7 +1049,7 @@ export default function SafetyMapScreen() {
           color={TealColors.primary}
         />
         <ThemedText style={styles.legendToggleText}>
-          {showLegend ? "Hide" : "Show"} Layers & Legend
+          {showLegend ? t("map.hideLayers") : t("map.showLayers")} {t("map.layersLegend")}
         </ThemedText>
       </Pressable>
 
@@ -1059,7 +1061,7 @@ export default function SafetyMapScreen() {
             { backgroundColor: isDarkMode ? "#1a202c" : "#f7fafc" },
           ]}
         >
-          <ThemedText style={styles.legendTitle}>Crime Density</ThemedText>
+          <ThemedText style={styles.legendTitle}>{t("map.crimeDensity")}</ThemedText>
 
           {/* Color Scale */}
           <View style={styles.colorScale}>
@@ -1072,13 +1074,13 @@ export default function SafetyMapScreen() {
 
           {/* Labels */}
           <View style={styles.legendLabels}>
-            <ThemedText style={styles.legendLabel}>Low</ThemedText>
-            <ThemedText style={styles.legendLabel}>High</ThemedText>
+            <ThemedText style={styles.legendLabel}>{t("map.low")}</ThemedText>
+            <ThemedText style={styles.legendLabel}>{t("map.high")}</ThemedText>
           </View>
 
           {/* Guide */}
           <ThemedText style={styles.legendGuide}>
-            Blue = Low density | Red = High density
+            {t("map.densityGuide")}
           </ThemedText>
 
           <View style={styles.legendDivider} />
@@ -1115,7 +1117,7 @@ export default function SafetyMapScreen() {
           </View>
 
           <View style={styles.legendDivider} />
-          <ThemedText style={styles.legendSectionTitle}>Map Layers</ThemedText>
+          <ThemedText style={styles.legendSectionTitle}>{t("map.mapLayers")}</ThemedText>
 
           <Pressable
             style={styles.checkboxRow}
@@ -1131,7 +1133,7 @@ export default function SafetyMapScreen() {
                 <IconSymbol name="checkmark" size={12} color="#ffffff" />
               )}
             </View>
-            <ThemedText style={styles.checkboxLabel}>Alert</ThemedText>
+            <ThemedText style={styles.checkboxLabel}>{t("map.alertLayer")}</ThemedText>
           </Pressable>
 
           <Pressable
@@ -1148,7 +1150,7 @@ export default function SafetyMapScreen() {
                 <IconSymbol name="checkmark" size={12} color="#ffffff" />
               )}
             </View>
-            <ThemedText style={styles.checkboxLabel}>Weather Forecast</ThemedText>
+            <ThemedText style={styles.checkboxLabel}>{t("map.weatherLayer")}</ThemedText>
           </Pressable>
 
           <Pressable
@@ -1165,7 +1167,7 @@ export default function SafetyMapScreen() {
                 <IconSymbol name="checkmark" size={12} color="#ffffff" />
               )}
             </View>
-            <ThemedText style={styles.checkboxLabel}>Evac Area</ThemedText>
+            <ThemedText style={styles.checkboxLabel}>{t("map.evacLayer")}</ThemedText>
           </Pressable>
         </View>
       )}
@@ -1192,7 +1194,7 @@ export default function SafetyMapScreen() {
               <View style={styles.infoPanelTitleRow}>
                 <IconSymbol name="location" size={16} color={TealColors.primary} />
                 <ThemedText style={styles.infoPanelTitle}>
-                  Area Weather Forecast
+                  {t("map.areaWeather")}
                 </ThemedText>
               </View>
             ) : (
@@ -1200,7 +1202,7 @@ export default function SafetyMapScreen() {
                 <View style={styles.infoPanelTitleRow}>
                   <IconSymbol name="location" size={16} color={TealColors.primary} />
                   <ThemedText style={styles.infoPanelTitle}>
-                    Area Information
+                    {t("map.areaInfo")}
                   </ThemedText>
                 </View>
               )
@@ -1241,14 +1243,14 @@ export default function SafetyMapScreen() {
                   <IconSymbol name="arrow.right" size={18} color={TealColors.primary} />
                   <View style={{ flex: 1 }}>
                     <ThemedText style={styles.navigationTitle} numberOfLines={1}>
-                      Routing to {navigationInfo.destination}
+                      {t("map.routingTo")} {navigationInfo.destination}
                     </ThemedText>
                     <ThemedText style={styles.navigationSubtitle}>
                       {navigationInfo.distanceKm.toFixed(2)} km · ~{navigationInfo.etaMinutes} min
                     </ThemedText>
                   </View>
                   <Pressable style={styles.navigationClearBtn} onPress={() => setRoutePath(null)}>
-                    <ThemedText style={styles.navigationClearText}>Clear</ThemedText>
+                    <ThemedText style={styles.navigationClearText}>{t("map.clear")}</ThemedText>
                   </Pressable>
                 </View>
               </View>
@@ -1264,7 +1266,7 @@ export default function SafetyMapScreen() {
                 ]}
               >
                 <ThemedText style={styles.markerDetailLabel}>
-                  Evacuation center
+                  {t("map.evacuationCenter")}
                 </ThemedText>
                 <ThemedText
                   style={[
@@ -1298,7 +1300,7 @@ export default function SafetyMapScreen() {
                 ]}
               >
                 <ThemedText style={styles.markerDetailLabel}>
-                  Incident alert
+                  {t("map.incidentAlert")}
                 </ThemedText>
                 <ThemedText
                   style={[
@@ -1306,12 +1308,12 @@ export default function SafetyMapScreen() {
                     { color: isDarkMode ? "#fee2e2" : "#0f172a" },
                   ]}
                 >
-                  {selectedCrimeDateLabel ?? "Recent report"}
+                  {selectedCrimeDateLabel ?? t("map.recentReport")}
                 </ThemedText>
                 <ThemedText style={styles.markerDetailMeta}>
                   {selectedCrimeDistanceLabel
                     ? `${selectedCrimeDistanceLabel} from you`
-                    : "Tap marker to reposition the map"}
+                    : t("map.tapMarker")}
                 </ThemedText>
               </View>
             )}
@@ -1358,7 +1360,7 @@ export default function SafetyMapScreen() {
                           { color: isDarkMode ? "#d1d5db" : "#94a3b8" },
                         ]}
                       >
-                        {weatherDetailLine.replace("Forecast slot: ", "Updated ")}
+                        {weatherDetailLine.replace("Forecast slot: ", t("map.updated") + " ")}
                       </ThemedText>
                       <Pressable
                         style={[

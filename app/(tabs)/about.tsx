@@ -2,34 +2,33 @@ import { Header } from '@/components/header';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
-import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/context/theme-context';
-import { getTranslation } from '@/data/emergency-translations';
+import { useTranslate } from '@/hooks/useTranslate';
 import { SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
 export default function AboutScreen() {
   const { isDarkMode } = useTheme();
-  const { language } = usePreferences();
+  const { t } = useTranslate();
 
   return (
     <SafeAreaView style={[styles.containerStyle, { backgroundColor: isDarkMode ? Colors.dark.background : Colors.light.background }]}>
       <Header />
       <ScrollView style={[styles.content, { backgroundColor: isDarkMode ? Colors.dark.background : Colors.light.background }]}>
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="title">About This App</ThemedText>
+          <ThemedText type="title">{t("about.title")}</ThemedText>
         </ThemedView>
         <ThemedView style={styles.section}>
-          <ThemedText type="subtitle">Version 1.0.0</ThemedText>
+          <ThemedText type="subtitle">{t("about.version")} 1.0.0</ThemedText>
           <ThemedText style={styles.description}>
-            {getTranslation("your_safety_first", language)} - This is a modern mobile application built with React Native and Expo.
+            {t("about.description")}
           </ThemedText>
         </ThemedView>
         <ThemedView style={styles.section}>
-          <ThemedText type="subtitle">Features</ThemedText>
+          <ThemedText type="subtitle">{t("about.features")}</ThemedText>
           <ThemedText style={styles.description}>
-            • {getTranslation("stay_informed", language)}{'\n'}
-            • {getTranslation("emergency_alert", language)}{'\n'}
-            • Cross-platform compatibility
+            • {t("stay_informed")}{'\n'}
+            • {t("emergency_alert")}{'\n'}
+            • {t("about.crossPlatform")}
           </ThemedText>
         </ThemedView>
       </ScrollView>

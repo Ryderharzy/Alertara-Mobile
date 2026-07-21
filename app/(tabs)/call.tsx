@@ -1,6 +1,7 @@
 import { Header } from "@/components/header";
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { VoIPCallScreen } from "@/components/voip-call-screen";
 import {
     Colors,
     DARK_BORDER,
@@ -9,13 +10,15 @@ import {
     LIGHT_CARD_BG,
     TealColors,
 } from "@/constants/theme";
-import { usePreferences } from "@/context/preferences-context";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
-import { getTranslation } from "@/data/emergency-translations";
-import React from "react";
+import { useTranslate } from "@/hooks/useTranslate";
+import { webViewJitsiService } from "@/services/voip/webview-jitsi-service";
+import React, { useState } from "react";
 import {
     Alert,
     Linking,
+    Modal,
     Pressable,
     SafeAreaView,
     ScrollView,
@@ -33,7 +36,7 @@ type HotlineCard = {
 
 const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
   {
-    title: "Primary Emergency",
+    title: "call.primaryEmergency",
     items: [
       {
         id: "qc-helpline-122",
@@ -54,7 +57,7 @@ const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
     ],
   },
   {
-    title: "Quezon City Emergency Operations",
+    title: "call.qcOperations",
     items: [
       {
         id: "qcdrrmo-main",
@@ -94,7 +97,7 @@ const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
     ],
   },
   {
-    title: "Police and Fire",
+    title: "call.policeFire",
     items: [
       {
         id: "qcpd-mobile",
@@ -120,7 +123,7 @@ const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
     ],
   },
   {
-    title: "Support & Protection",
+    title: "call.supportProtection",
     items: [
       {
         id: "women-children-protection",
@@ -162,13 +165,28 @@ function callNumber(phone: string) {
 
 export default function CallScreen() {
   const { isDarkMode } = useTheme();
-  const { language } = usePreferences();
+  const { t } = useTranslate();
+  const { userProfile } = useAuth();
+  const [voipCallActive, setVoipCallActive] = useState(false);
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
 
   const handleShareLocation = () => {
     Alert.alert(
       "Share My Location",
       "Connect this action to your location-sharing flow or emergency message."
     );
+  };
+
+  const handleVoipCall = (hotlineId: string) => {
+    const roomName = webViewJitsiService.generateEmergencyRoomName(hotlineId);
+    setCurrentRoom(roomName);
+    setVoipCallActive(true);
+    webViewJitsiService.setCurrentHotlineId(hotlineId);
+  };
+
+  const handleEndVoipCall = () => {
+    setVoipCallActive(false);
+    setCurrentRoom(null);
   };
 
   return (
@@ -199,7 +217,7 @@ export default function CallScreen() {
             <View style={styles.heroText}>
               <ThemedText style={styles.title}>Emergency Help</ThemedText>
               <ThemedText style={styles.subtitle}>
-                {getTranslation("report_emergency", language)}: Call responders immediately if there is danger to life, injury, fire, crime, or urgent medical need.
+                {t("report_emergency")}: Call responders immediately if there is danger to life, injury, fire, crime, or urgent medical need.
               </ThemedText>
             </View>
           </View>
@@ -211,7 +229,7 @@ export default function CallScreen() {
 
           <Pressable style={styles.secondaryButton} onPress={handleShareLocation}>
             <IconSymbol size={18} name="location.fill" color={TealColors.primary} />
-            <ThemedText style={styles.secondaryButtonText}>{getTranslation("move_to_higher_ground", language)}</ThemedText>
+            <ThemedText style={styles.secondaryButtonText}>{t("move_to_higher_ground")}</ThemedText>
           </Pressable>
         </View>
 
@@ -228,7 +246,7 @@ export default function CallScreen() {
             <IconSymbol size={18} name="location.fill" color={TealColors.primary} />
             <ThemedText style={styles.sectionTitle}>Location Status</ThemedText>
           </View>
-          <ThemedText style={styles.locationText}>{getTranslation("stay_calm", language)}</ThemedText>
+          <ThemedText style={styles.locationText}>{t("stay_calm")}</ThemedText>
           <ThemedText style={styles.locationText}>
             Nearest response area: Quezon City
           </ThemedText>
@@ -236,7 +254,7 @@ export default function CallScreen() {
 
         {hotlineGroups.map((group) => (
           <View key={group.title} style={styles.groupSection}>
-            <ThemedText style={styles.groupTitle}>{group.title}</ThemedText>
+            <ThemedText style={styles.groupTitle}>{t(group.title)}</ThemedText>
             <View style={styles.cardGrid}>
               {group.items.map((item) => (
                 <View
@@ -259,9 +277,16 @@ export default function CallScreen() {
                     </View>
                   </View>
                   <ThemedText style={styles.phoneText}>{item.phone}</ThemedText>
-                  <Pressable style={styles.callButton} onPress={() => callNumber(item.phone)}>
-                    <ThemedText style={styles.callButtonText}>Call Now</ThemedText>
-                  </Pressable>
+                  <View style={styles.buttonRow}>
+                    <Pressable style={styles.callButton} onPress={() => callNumber(item.phone)}>
+                      <IconSymbol size={16} name="phone.fill" color="#fff" />
+                      <ThemedText style={styles.callButtonText}>{t("call.tapToCall")}</ThemedText>
+                    </Pressable>
+                    <Pressable style={[styles.callButton, styles.voipButton]} onPress={() => handleVoipCall(item.id)}>
+                      <IconSymbol size={16} name="video.fill" color="#fff" />
+                      <ThemedText style={styles.callButtonText}>{t("call.voipCall")}</ThemedText>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
             </View>
@@ -277,12 +302,29 @@ export default function CallScreen() {
             },
           ]}
         >
-          <ThemedText style={styles.groupTitle}>Before You Call</ThemedText>
-          <ThemedText style={styles.prepItem}>State your exact location.</ThemedText>
-          <ThemedText style={styles.prepItem}>Describe what happened briefly.</ThemedText>
-          <ThemedText style={styles.prepItem}>Say how many people are affected.</ThemedText>
+          <ThemedText style={styles.groupTitle}>{t("call.beforeYouCall")}</ThemedText>
+          <ThemedText style={styles.prepItem}>{t("call.stateLocation")}</ThemedText>
+          <ThemedText style={styles.prepItem}>{t("call.describeIncident")}</ThemedText>
+          <ThemedText style={styles.prepItem}>{t("call.affectedCount")}</ThemedText>
         </View>
       </ScrollView>
+      
+      {/* VoIP Call Modal */}
+      <Modal
+        visible={voipCallActive}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={handleEndVoipCall}
+      >
+        {currentRoom && (
+          <VoIPCallScreen
+            roomName={currentRoom}
+            displayName={userProfile?.name || 'Emergency User'}
+            onCallEnd={handleEndVoipCall}
+            hotlineId={webViewJitsiService.getCurrentHotlineId() || undefined}
+          />
+        )}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -426,11 +468,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: TealColors.primary,
   },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   callButton: {
+    flex: 1,
     backgroundColor: TealColors.primary,
     borderRadius: 14,
     paddingVertical: 10,
-    alignItems: "center",
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  voipButton: {
+    backgroundColor: '#6366f1',
   },
   callButtonText: {
     color: "#fff",

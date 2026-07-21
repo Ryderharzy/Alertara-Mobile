@@ -4,7 +4,7 @@
 
 import axios, { AxiosError, AxiosInstance } from "axios";
 
-export const API_BASE_URL = "https://emergency-comm.alertaraqc.com/api";
+export const API_BASE_URL = "https://emergency-comm.alertaraqc.com/PHP/api";
 
 /**
  * Create and configure Axios instance with default settings

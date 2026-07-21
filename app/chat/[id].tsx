@@ -2,27 +2,48 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import { useTranslate } from "@/hooks/useTranslate";
+import type { ChatMessage as ApiChatMessage } from "@/services/api/chat-service";
+import { chatService } from "@/services/api/chat-service";
+import {
+  emergencyReportService,
+  formatReportStatusLabel,
+  INCIDENT_STATUS_OPTIONS,
+  IncidentStatus,
+  parseReportIdFromThreadId,
+  statusLabelToKey,
+  statusToTranslationKey,
+} from "@/services/api/emergency-report-service";
+import { mediaUploadService } from "@/services/api/media-upload-service";
+import { upsertConversationThread } from "@/utils/conversation-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
 } from "react-native";
 
-type ChatMessage = {
+type LocalChatMessage = {
   id: string;
   from: "bot" | "user";
   text: string;
   sentAt: number;
+  attachmentUrl?: string;
+  attachmentType?: string;
 };
 
 const promptMap: Record<string, string[]> = {
@@ -58,9 +79,18 @@ const promptMap: Record<string, string[]> = {
 const STORAGE_PREFIX = "chat-thread-";
 const MAX_HISTORY = 50;
 
+const statusColors: Record<IncidentStatus, string> = {
+  pending: "#e3b341",
+  received: "#3b82f6",
+  in_progress: "#8b5cf6",
+  resolved: "#2f9d63",
+  rejected: "#ef4444",
+};
+
 export default function ChatScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
   const {
     id,
     title,
@@ -76,25 +106,96 @@ export default function ChatScreen() {
   }>();
   const alertTitle = decodeURIComponent(title ?? "Alert chat");
   const threadId = id ?? "general";
-  const status = rawStatus ? decodeURIComponent(rawStatus) : undefined;
   const threadIcon = rawIcon ? decodeURIComponent(rawIcon) : "robot";
   const storageKey = `${STORAGE_PREFIX}${threadId}`;
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<LocalChatMessage[]>([]);
+  const [statusLabel, setStatusLabel] = useState<string | undefined>(() =>
+    rawStatus ? decodeURIComponent(rawStatus) : undefined,
+  );
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isRealTimeChat, setIsRealTimeChat] = useState(false);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
   const categoryLabel = category ? decodeURIComponent(category) : "General";
-  const statusLabel = status ? decodeURIComponent(status) : undefined;
   const iconName = threadIcon || "robot";
-  const statusColor = statusLabel
-    ? statusLabel.toLowerCase().includes("pend")
-      ? "#e3b341"
-      : statusLabel.toLowerCase().includes("resolve")
-        ? "#2f9d63"
-        : statusLabel.toLowerCase().includes("progress")
-          ? "#3b82f6"
-          : "#9ca3af"
-    : "#9ca3af";
+  const reportId = parseReportIdFromThreadId(threadId);
+  const canChangeStatus = reportId !== null;
+  const currentStatusKey = statusLabel ? statusLabelToKey(statusLabel) : null;
+  const statusColor =
+    currentStatusKey && statusColors[currentStatusKey]
+      ? statusColors[currentStatusKey]
+      : "#9ca3af";
+  const { userProfile } = useAuth();
+
+  // Check if this is a general support chat (should connect to human operators)
+  const isGeneralSupport = threadId === "general" || categoryLabel === "General";
+
+  useEffect(() => {
+    if (rawStatus) {
+      setStatusLabel(decodeURIComponent(rawStatus));
+    }
+  }, [rawStatus]);
+
+  // Load real-time conversation if it's general support
+  useEffect(() => {
+    if (!isGeneralSupport) return;
+
+    const loadRealTimeConversation = async () => {
+      try {
+        setIsLoadingMessages(true);
+        
+        // Try to get conversation ID from storage
+        const storedConvId = await AsyncStorage.getItem(`conversation-${threadId}`);
+        
+        if (storedConvId) {
+          const convId = parseInt(storedConvId);
+          setConversationId(convId);
+          setIsRealTimeChat(true);
+          
+          // Try to load messages to verify conversation is still open
+          try {
+            const apiMessages = await chatService.getMessages(convId, userProfile?.id);
+            
+            // Convert API messages to local format
+            const localMessages: LocalChatMessage[] = apiMessages.map((msg: ApiChatMessage) => ({
+              id: msg.message_id.toString(),
+              from: msg.sender_type === 'admin' ? 'bot' : 'user',
+              text: msg.message_text,
+              sentAt: new Date(msg.created_at).getTime(),
+              attachmentUrl: msg.attachment_url,
+              attachmentType: msg.attachment_mime,
+            }));
+            
+            setMessages(localMessages);
+          } catch (error) {
+            // If loading messages fails, conversation might be closed
+            console.error('Failed to load conversation messages, clearing ID:', error);
+            await AsyncStorage.removeItem(`conversation-${threadId}`);
+            setConversationId(null);
+            setIsRealTimeChat(true);
+          }
+        } else {
+          // No existing conversation, will create on first message
+          setIsRealTimeChat(true);
+        }
+      } catch (error) {
+        console.error('Failed to load real-time conversation:', error);
+        // Fall back to local storage
+        setIsRealTimeChat(false);
+      } finally {
+        setIsLoadingMessages(false);
+      }
+    };
+
+    loadRealTimeConversation();
+  }, [threadId, isGeneralSupport, userProfile?.id]);
 
   const promptChips = useMemo(() => {
     const key = (category ?? "General").toString();
@@ -160,7 +261,7 @@ export default function ChatScreen() {
         const saved = await AsyncStorage.getItem(storageKey);
         if (!active) return;
         if (saved) {
-          const parsed = JSON.parse(saved) as ChatMessage[];
+          const parsed = JSON.parse(saved) as LocalChatMessage[];
           setMessages(parsed);
           return;
         }
@@ -187,12 +288,33 @@ export default function ChatScreen() {
       storageKey,
       JSON.stringify(messages.slice(-MAX_HISTORY)),
     );
-  }, [messages, storageKey]);
 
-  const send = (text: string) => {
+    const last = messages[messages.length - 1];
+    void upsertConversationThread({
+      id: threadId,
+      title: alertTitle,
+      category: categoryLabel,
+      status: statusLabel,
+      icon: iconName,
+      lastMessage: last.text,
+      lastMessageFrom: last.from,
+      updatedAt: new Date(last.sentAt).toISOString(),
+    });
+  }, [
+    messages,
+    storageKey,
+    threadId,
+    alertTitle,
+    categoryLabel,
+    statusLabel,
+    iconName,
+  ]);
+
+  const send = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const userMsg: ChatMessage = {
+    
+    const userMsg: LocalChatMessage = {
       id: `u-${Date.now()}`,
       from: "user",
       text: trimmed,
@@ -201,15 +323,105 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg].slice(-MAX_HISTORY));
     setInput("");
 
-    setTimeout(() => {
-      const botMsg: ChatMessage = {
-        id: `b-${Date.now()}`,
-        from: "bot",
-        text: generateBotReply(trimmed),
-        sentAt: Date.now(),
-      };
-      setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
-    }, 900);
+    // Handle real-time chat for general support
+    if (isGeneralSupport && isRealTimeChat) {
+      try {
+        let currentConvId = conversationId;
+        
+        // Create conversation if it doesn't exist
+        if (!currentConvId) {
+          const newConv = await chatService.createConversation({
+            user_id: userProfile?.id,
+            user_name: userProfile?.name || 'Guest User',
+            user_email: userProfile?.email || undefined,
+            user_phone: userProfile?.phone || undefined,
+            user_concern: 'general',
+            is_guest: !userProfile?.id ? 1 : 0,
+            message: trimmed,
+          });
+          
+          currentConvId = newConv.conversation_id;
+          setConversationId(currentConvId);
+          await AsyncStorage.setItem(`conversation-${threadId}`, currentConvId.toString());
+        } else {
+          // Send message to existing conversation
+          await chatService.sendMessage({
+            conversation_id: currentConvId,
+            sender_id: userProfile?.id?.toString(),
+            sender_name: userProfile?.name || 'Guest User',
+            sender_type: 'user',
+            message_text: trimmed,
+          });
+        }
+        
+        // Add system message indicating connection to human operator
+        const systemMsg: LocalChatMessage = {
+          id: `s-${Date.now()}`,
+          from: "bot" as const,
+          text: "Your message has been sent to our support team. An operator will respond shortly.",
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, systemMsg].slice(-MAX_HISTORY));
+        
+      } catch (error) {
+        console.error('Failed to send real-time message:', error);
+        
+        // Check if conversation is closed, clear it and try creating new one
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('closed conversation') && conversationId) {
+          console.log('Conversation closed, clearing stored ID and creating new one');
+          await AsyncStorage.removeItem(`conversation-${threadId}`);
+          setConversationId(null);
+          
+          // Try again with new conversation
+          try {
+            const newConv = await chatService.createConversation({
+              user_id: userProfile?.id,
+              user_name: userProfile?.name || 'Guest User',
+              user_email: userProfile?.email || undefined,
+              user_phone: userProfile?.phone || undefined,
+              user_concern: 'general',
+              is_guest: !userProfile?.id ? 1 : 0,
+              message: trimmed,
+            });
+            
+            setConversationId(newConv.conversation_id);
+            await AsyncStorage.setItem(`conversation-${threadId}`, newConv.conversation_id.toString());
+            
+            const systemMsg: LocalChatMessage = {
+              id: `s-${Date.now()}`,
+              from: "bot" as const,
+              text: "Your message has been sent to our support team. An operator will respond shortly.",
+              sentAt: Date.now(),
+            };
+            setMessages((prev) => [...prev, systemMsg].slice(-MAX_HISTORY));
+            return;
+          } catch (retryError) {
+            console.error('Failed to create new conversation:', retryError);
+          }
+        }
+        
+        // Fall back to bot response
+        const botMsg: LocalChatMessage = {
+          id: `b-${Date.now()}`,
+          from: "bot" as const,
+          text: "Sorry, there was an error connecting to our support team. " + generateBotReply(trimmed),
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
+      }
+    } else {
+      // Use simulated bot for incident-related chats
+      setTimeout(() => {
+        const botMsg: LocalChatMessage = {
+          id: `b-${Date.now()}`,
+          from: "bot" as const,
+          text: generateBotReply(trimmed),
+          sentAt: Date.now(),
+        };
+        setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
+      }, 900);
+    }
   };
 
   const handleReset = async () => {
@@ -224,6 +436,170 @@ export default function ChatScreen() {
     ]);
   };
 
+  const handleMediaPicker = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please grant camera roll permissions to attach media.');
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        
+        // Validate file size (max 10MB)
+        if (asset.fileSize && !mediaUploadService.validateFileSize(asset.fileSize)) {
+          Alert.alert('File too large', 'Please select a file smaller than 10MB.');
+          return;
+        }
+
+        setSelectedMedia(asset);
+      }
+    } catch (error) {
+      console.error('Error picking media:', error);
+      Alert.alert('Error', 'Failed to pick media. Please try again.');
+    }
+  };
+
+  const handleMediaUpload = async () => {
+    if (!selectedMedia) return;
+
+    try {
+      setIsUploadingMedia(true);
+      setUploadProgress(0);
+
+      const uploadData = {
+        file: {
+          uri: selectedMedia.uri,
+          type: selectedMedia.mimeType || 'image/jpeg',
+          name: selectedMedia.fileName || `media_${Date.now()}.jpg`,
+          size: selectedMedia.fileSize,
+        },
+        conversation_id: conversationId || undefined,
+      };
+
+      const response = await mediaUploadService.uploadMedia(uploadData, (progress: any) => {
+        setUploadProgress(progress.percentage);
+      });
+
+      // For general support chats with real-time connection
+      if (isGeneralSupport && isRealTimeChat && conversationId) {
+        await chatService.sendMessage({
+          conversation_id: conversationId,
+          sender_id: userProfile?.id,
+          sender_name: userProfile?.name || 'Guest User',
+          sender_type: 'user',
+          message_text: input || 'Sent an attachment',
+          attachment_url: response.file_url,
+          attachment_mime: response.file_type,
+          attachment_size: response.file_size,
+        });
+      }
+
+      // Add local message with media attachment for all chat types
+      const mediaMsg: LocalChatMessage = {
+        id: `m-${Date.now()}`,
+        from: "user",
+        text: input || 'Sent an attachment',
+        sentAt: Date.now(),
+        attachmentUrl: response.file_url,
+        attachmentType: response.file_type,
+      };
+      setMessages((prev) => [...prev, mediaMsg].slice(-MAX_HISTORY));
+
+      setSelectedMedia(null);
+      setInput('');
+      setUploadProgress(0);
+
+    } catch (error) {
+      console.error('Failed to upload media:', error);
+      Alert.alert('Upload failed', 'Failed to upload media. Please try again.');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
+  const handleRemoveMedia = () => {
+    setSelectedMedia(null);
+  };
+
+  const syncLastIncidentChatStatus = async (nextLabel: string) => {
+    try {
+      const saved = await AsyncStorage.getItem("last-incident-chat");
+      if (!saved) return;
+      const last = JSON.parse(saved) as { id?: string; status?: string };
+      if (last.id !== threadId) return;
+      await AsyncStorage.setItem(
+        "last-incident-chat",
+        JSON.stringify({ ...last, status: nextLabel }),
+      );
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const handleStatusChange = async (nextStatus: IncidentStatus) => {
+    if (!reportId || isUpdatingStatus) return;
+
+    setShowStatusMenu(false);
+    setIsUpdatingStatus(true);
+
+    try {
+      await emergencyReportService.updateStatus({
+        report_id: reportId,
+        status: nextStatus,
+      });
+
+      const nextLabel = formatReportStatusLabel(nextStatus);
+      setStatusLabel(nextLabel);
+
+      const statusMessage = t("chat.statusUpdated", "Status updated to {status}.").replace(
+        "{status}",
+        t(statusToTranslationKey(nextStatus), nextLabel),
+      );
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `s-${Date.now()}`,
+          from: "bot" as const,
+          text: statusMessage,
+          sentAt: Date.now(),
+        },
+      ].slice(-MAX_HISTORY));
+
+      await upsertConversationThread({
+        id: threadId,
+        title: alertTitle,
+        category: categoryLabel,
+        status: nextLabel,
+        icon: iconName,
+        lastMessage: statusMessage,
+        lastMessageFrom: "system",
+        updatedAt: new Date().toISOString(),
+      });
+
+      await syncLastIncidentChatStatus(nextLabel);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : t("chat.statusUpdateFailed", "Could not update status. Please try again.");
+      Alert.alert(t("chat.changeStatus", "Change status"), message);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   const screenBg = isDarkMode
     ? Colors.dark.background
     : Colors.light.background;
@@ -234,13 +610,8 @@ export default function ChatScreen() {
 
   return (
     <ThemedView style={[styles.container, { backgroundColor: screenBg }]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      >
-        <SafeAreaView style={{ flex: 1 }}>
-          <View style={styles.hero}>
+      <SafeAreaView style={{ flex: 1 }}>
+        <View style={styles.hero}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <IconSymbol name="arrow.left" size={18} color="#ffffff" />
             </Pressable>
@@ -255,21 +626,43 @@ export default function ChatScreen() {
                 {categoryLabel} · AI Assistant
               </ThemedText>
               {statusLabel ? (
-                <View
-                  style={[
+                <Pressable
+                  onPress={() => {
+                    if (canChangeStatus && !isUpdatingStatus) {
+                      setShowStatusMenu(true);
+                    }
+                  }}
+                  disabled={!canChangeStatus || isUpdatingStatus}
+                  accessibilityLabel={t(
+                    "chat.tapToChangeStatus",
+                    "Tap to update incident status",
+                  )}
+                  style={({ pressed }) => [
                     styles.statusPill,
                     {
                       borderColor: statusColor,
                       backgroundColor: `${statusColor}20`,
+                      opacity: pressed && canChangeStatus ? 0.85 : 1,
                     },
                   ]}
                 >
-                  <ThemedText
-                    style={[styles.statusPillText, { color: statusColor }]}
-                  >
-                    Status: {statusLabel}
-                  </ThemedText>
-                </View>
+                  {isUpdatingStatus ? (
+                    <ActivityIndicator size="small" color={statusColor} />
+                  ) : (
+                    <ThemedText
+                      style={[styles.statusPillText, { color: statusColor }]}
+                    >
+                      Status:{" "}
+                      {currentStatusKey
+                        ? t(
+                            statusToTranslationKey(currentStatusKey),
+                            statusLabel,
+                          )
+                        : statusLabel}
+                      {canChangeStatus ? " ▾" : ""}
+                    </ThemedText>
+                  )}
+                </Pressable>
               ) : null}
             </View>
             <Pressable
@@ -285,7 +678,7 @@ export default function ChatScreen() {
             </Pressable>
           </View>
 
-          <View style={[styles.threadCard, { backgroundColor: cardBg }]}>
+          <View style={[styles.threadCard, { backgroundColor: cardBg, flex: 1 }]}>
             <ScrollView
               ref={scrollRef}
               contentContainerStyle={styles.threadContent}
@@ -300,94 +693,185 @@ export default function ChatScreen() {
                       : [styles.botBubble, { backgroundColor: bubbleBot }],
                   ]}
                 >
-                  <ThemedText
-                    style={[
-                      styles.bubbleText,
-                      { color: m.from === "user" ? "#ffffff" : textColor },
-                    ]}
-                  >
-                    {m.text}
-                  </ThemedText>
+                  {m.attachmentUrl && (
+                    <Image 
+                      source={{ uri: m.attachmentUrl }} 
+                      style={styles.chatMedia}
+                      resizeMode="cover"
+                    />
+                  )}
+                  {m.text && (
+                    <ThemedText
+                      style={[
+                        styles.bubbleText,
+                        { color: m.from === "user" ? "#ffffff" : textColor },
+                      ]}
+                    >
+                      {m.text}
+                    </ThemedText>
+                  )}
                 </View>
               ))}
             </ScrollView>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.promptsScroller}
-            contentContainerStyle={styles.promptsRow}
-          >
-            {promptChips.map((chip) => (
+          <View style={styles.bottomSection}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.promptsScroller}
+              contentContainerStyle={styles.promptsRow}
+            >
+              {promptChips.map((chip) => (
+                <Pressable
+                  key={chip}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    {
+                      backgroundColor: pressed
+                        ? `${TealColors.primary}1A`
+                        : `${TealColors.primary}10`,
+                      borderColor: `${TealColors.primary}40`,
+                    },
+                  ]}
+                  onPress={() => send(chip)}
+                >
+                  <ThemedText style={styles.chipText}>{chip}</ThemedText>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* Media Preview */}
+            {selectedMedia && (
+              <View style={styles.mediaPreview}>
+                <Image 
+                  source={{ uri: selectedMedia.uri }} 
+                  style={styles.mediaThumbnail}
+                  resizeMode="cover"
+                />
+                <Pressable 
+                  style={styles.removeMediaBtn}
+                  onPress={handleRemoveMedia}
+                >
+                  <Ionicons name="close-circle" size={24} color="#ef4444" />
+                </Pressable>
+                {isUploadingMedia && (
+                  <View style={styles.uploadProgress}>
+                    <ActivityIndicator size="small" color={TealColors.primary} />
+                    <Text style={styles.uploadProgressText}>{uploadProgress}%</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <View style={[styles.composer, { backgroundColor: cardBg }]}>
+              <TextInput
+                value={input}
+                onChangeText={setInput}
+                placeholder="Ask a question..."
+                placeholderTextColor="#6b7280"
+                style={[styles.input, { color: textColor }]}
+                multiline
+              />
+              <View style={styles.composerIcons}>
+                <Pressable onPress={handleMediaPicker} style={styles.attachBtn}>
+                  <Ionicons name="attach" size={18} color="#6b7280" />
+                </Pressable>
+                <Pressable style={styles.attachBtn}>
+                  <Ionicons name="camera" size={18} color="#6b7280" />
+                </Pressable>
+                <Pressable style={styles.attachBtn}>
+                  <Ionicons name="mic" size={18} color="#6b7280" />
+                </Pressable>
+              </View>
               <Pressable
-                key={chip}
-                style={({ pressed }) => [
-                  styles.chip,
+                style={[
+                  styles.sendBtn,
                   {
-                    backgroundColor: pressed
-                      ? `${TealColors.primary}1A`
-                      : `${TealColors.primary}10`,
-                    borderColor: `${TealColors.primary}40`,
+                    opacity: (input.trim().length || selectedMedia) ? 1 : 0.4,
+                    borderColor: TealColors.primary,
                   },
                 ]}
-                onPress={() => send(chip)}
+                disabled={!input.trim().length && !selectedMedia}
+                onPress={() => selectedMedia ? handleMediaUpload() : send(input)}
               >
-                <ThemedText style={styles.chipText}>{chip}</ThemedText>
+                <IconSymbol
+                  name="paperplane.fill"
+                  size={18}
+                  color={TealColors.primary}
+                />
               </Pressable>
-            ))}
-          </ScrollView>
-
-          <View style={[styles.composer, { backgroundColor: cardBg }]}>
-            <TextInput
-              value={input}
-              onChangeText={setInput}
-              placeholder="Ask a question..."
-              placeholderTextColor="#6b7280"
-              style={[styles.input, { color: textColor }]}
-              multiline
-            />
-            <View style={styles.composerIcons}>
-              <Ionicons name="attach" size={18} color="#6b7280" />
-              <Ionicons name="camera" size={18} color="#6b7280" />
-              <Ionicons name="mic" size={18} color="#6b7280" />
             </View>
+          </View>
+
+        <Modal
+          visible={showStatusMenu}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowStatusMenu(false)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowStatusMenu(false)}
+          >
             <Pressable
               style={[
-                styles.sendBtn,
+                styles.statusSheet,
                 {
-                  opacity: input.trim().length ? 1 : 0.4,
-                  borderColor: TealColors.primary,
+                  backgroundColor: isDarkMode ? "#1c2830" : "#ffffff",
+                  borderColor: isDarkMode ? "#24333b" : "#e1e7ec",
                 },
               ]}
-              disabled={!input.trim().length}
-              onPress={() => send(input)}
+              onPress={(event) => event.stopPropagation()}
             >
-              <IconSymbol
-                name="paperplane.fill"
-                size={18}
-                color={TealColors.primary}
-              />
-            </Pressable>
-          </View>
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-    </ThemedView>
-  );
-}
+              <ThemedText style={[styles.statusSheetTitle, { color: textColor }]}>
+                {t("chat.changeStatus", "Change status")}
+              </ThemedText>
 
-function SafeHeader({ onBack }: { onBack: () => void }) {
-  return (
-    <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-      <Pressable
-        onPress={onBack}
-        style={{ paddingVertical: 6, paddingHorizontal: 4 }}
-      >
-        <ThemedText style={{ fontSize: 14, color: TealColors.primary }}>
-          ‹ Back
-        </ThemedText>
-      </Pressable>
-    </View>
+              {INCIDENT_STATUS_OPTIONS.map((option) => {
+                const optionColor = statusColors[option];
+                const isActive = currentStatusKey === option;
+                return (
+                  <Pressable
+                    key={option}
+                    style={[
+                      styles.statusOption,
+                      {
+                        borderColor: isActive ? optionColor : isDarkMode ? "#24333b" : "#e1e7ec",
+                        backgroundColor: isActive ? `${optionColor}15` : "transparent",
+                      },
+                    ]}
+                    onPress={() => void handleStatusChange(option)}
+                  >
+                    <View
+                      style={[
+                        styles.statusDot,
+                        { backgroundColor: optionColor },
+                      ]}
+                    />
+                    <Text style={[styles.statusOptionText, { color: textColor }]}>
+                      {t(statusToTranslationKey(option), formatReportStatusLabel(option))}
+                    </Text>
+                    {isActive ? (
+                      <IconSymbol name="checkmark" size={16} color={optionColor} />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+
+              <Pressable
+                style={styles.statusCancel}
+                onPress={() => setShowStatusMenu(false)}
+              >
+                <Text style={{ color: TealColors.primary, fontWeight: "700" }}>
+                  {t("action.cancel", "Cancel")}
+                </Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 
@@ -398,38 +882,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 60,
     paddingBottom: 8,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
   backBtn: {
-    padding: 6,
-    backgroundColor: "rgba(255,255,255,0.16)",
+    padding: 8,
+    backgroundColor: "rgba(255,255,255,0.18)",
     borderRadius: 10,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#e0f2f1",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
   },
   heroTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginTop: 2,
   },
   heroSubtitle: {
     fontSize: 12,
-    color: "#e0f2f1",
-    marginTop: 2,
-  },
-  statusLabel: {
-    fontSize: 11,
-    color: "#d7f7ee",
+    color: "#0f172a",
     marginTop: 4,
     opacity: 0.88,
   },
@@ -455,42 +935,44 @@ const styles = StyleSheet.create({
   },
   promptsRow: {
     paddingHorizontal: 12,
-    paddingTop: 0,
-    paddingBottom: 0,
-    gap: 6,
-    alignItems: "center",
+    gap: 8,
   },
   chip: {
     paddingHorizontal: 12,
-    paddingVertical: 1,
-    borderRadius: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
-    minHeight: 22,
-    justifyContent: "center",
   },
   chipText: {
-    fontSize: 11,
-    lineHeight: 12,
-    fontWeight: "600",
+    fontSize: 12,
     color: TealColors.primary,
+    fontWeight: "600",
   },
   threadCard: {
-    marginTop: 15,
-    flex: 1,
     marginHorizontal: 12,
-    marginBottom: 12,
-    padding: 1,
-    minHeight: 260,
+    marginVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.4)",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  bottomSection: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
   },
   threadContent: {
-    gap: 10,
-    paddingVertical: 4,
+    padding: 12,
+    gap: 12,
   },
   bubble: {
-    maxWidth: "80%",
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    maxWidth: "85%",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
   },
   userBubble: {
     alignSelf: "flex-end",
@@ -501,6 +983,12 @@ const styles = StyleSheet.create({
   bubbleText: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  chatMedia: {
+    width: 200,
+    height: 150,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   composer: {
     marginHorizontal: 12,
@@ -524,6 +1012,43 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  attachBtn: {
+    padding: 8,
+  },
+  mediaPreview: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    position: 'relative',
+  },
+  mediaThumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  removeMediaBtn: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+  },
+  uploadProgress: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 4,
+    padding: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  uploadProgressText: {
+    color: '#ffffff',
+    fontSize: 10,
+  },
   input: {
     flex: 1,
     fontSize: 14,
@@ -537,4 +1062,49 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: "#ffffff",
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  statusSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    paddingBottom: 32,
+    gap: 8,
+  },
+  statusSheetTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  statusOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  statusOptionText: {
+    flex: 1,
+    fontSize: 15,
+  },
+  statusCancel: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
 });
+
+
+

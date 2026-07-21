@@ -48,13 +48,15 @@ export function BottomNav({
             ? t("nav.home", "Home")
             : route.name === "map"
               ? t("nav.map", "Map")
-              : route.name === "report"
-                ? t("nav.report", "Report")
-                : route.name === "me"
-                  ? t("nav.profile", "Profile")
-                  : route.name === "call"
-                    ? t("nav.call", "Call")
-                    : options.title || route.name;
+              : route.name === "messages"
+                ? t("nav.messages", "Messages")
+                : route.name === "report"
+                  ? t("nav.report", "Report")
+                  : route.name === "me"
+                    ? t("nav.profile", "Profile")
+                    : route.name === "call"
+                      ? t("nav.call", "Call")
+                      : options.title || route.name;
         const isFocused = state.index === index;
 
         const onPress = () => {
@@ -107,11 +109,15 @@ export function BottomNav({
                 ? isFocused
                   ? "map.fill"
                   : "map"
-                : route.name === "me"
+                : route.name === "messages"
                   ? isFocused
-                    ? "person.fill"
-                    : "person"
-                  : "circle";
+                    ? "bubble.left.and.bubble.right.fill"
+                    : "bubble.left.and.bubble.right"
+                  : route.name === "me"
+                    ? isFocused
+                      ? "person.fill"
+                      : "person"
+                    : "circle";
 
         // add extra inner padding to tabs adjacent to the call button so they don't
         // overlap with the central floating call circle — use padding instead of
