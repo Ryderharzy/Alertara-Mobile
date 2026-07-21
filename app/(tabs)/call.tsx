@@ -36,7 +36,7 @@ type HotlineCard = {
 
 const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
   {
-    title: "Primary Emergency",
+    title: "call.primaryEmergency",
     items: [
       {
         id: "qc-helpline-122",
@@ -57,7 +57,7 @@ const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
     ],
   },
   {
-    title: "Quezon City Emergency Operations",
+    title: "call.qcOperations",
     items: [
       {
         id: "qcdrrmo-main",
@@ -97,7 +97,7 @@ const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
     ],
   },
   {
-    title: "Police and Fire",
+    title: "call.policeFire",
     items: [
       {
         id: "qcpd-mobile",
@@ -123,7 +123,7 @@ const hotlineGroups: { title: string; items: HotlineCard[] }[] = [
     ],
   },
   {
-    title: "Support & Protection",
+    title: "call.supportProtection",
     items: [
       {
         id: "women-children-protection",
@@ -254,7 +254,7 @@ export default function CallScreen() {
 
         {hotlineGroups.map((group) => (
           <View key={group.title} style={styles.groupSection}>
-            <ThemedText style={styles.groupTitle}>{group.title}</ThemedText>
+            <ThemedText style={styles.groupTitle}>{t(group.title)}</ThemedText>
             <View style={styles.cardGrid}>
               {group.items.map((item) => (
                 <View
@@ -280,11 +280,11 @@ export default function CallScreen() {
                   <View style={styles.buttonRow}>
                     <Pressable style={styles.callButton} onPress={() => callNumber(item.phone)}>
                       <IconSymbol size={16} name="phone.fill" color="#fff" />
-                      <ThemedText style={styles.callButtonText}>Call</ThemedText>
+                      <ThemedText style={styles.callButtonText}>{t("call.tapToCall")}</ThemedText>
                     </Pressable>
                     <Pressable style={[styles.callButton, styles.voipButton]} onPress={() => handleVoipCall(item.id)}>
                       <IconSymbol size={16} name="video.fill" color="#fff" />
-                      <ThemedText style={styles.callButtonText}>VoIP</ThemedText>
+                      <ThemedText style={styles.callButtonText}>{t("call.voipCall")}</ThemedText>
                     </Pressable>
                   </View>
                 </View>
@@ -302,10 +302,10 @@ export default function CallScreen() {
             },
           ]}
         >
-          <ThemedText style={styles.groupTitle}>Before You Call</ThemedText>
-          <ThemedText style={styles.prepItem}>State your exact location.</ThemedText>
-          <ThemedText style={styles.prepItem}>Describe what happened briefly.</ThemedText>
-          <ThemedText style={styles.prepItem}>Say how many people are affected.</ThemedText>
+          <ThemedText style={styles.groupTitle}>{t("call.beforeYouCall")}</ThemedText>
+          <ThemedText style={styles.prepItem}>{t("call.stateLocation")}</ThemedText>
+          <ThemedText style={styles.prepItem}>{t("call.describeIncident")}</ThemedText>
+          <ThemedText style={styles.prepItem}>{t("call.affectedCount")}</ThemedText>
         </View>
       </ScrollView>
       

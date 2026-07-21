@@ -83,7 +83,7 @@ export const voipService = {
   async registerRoom(data: VoIPRoomData): Promise<VoIPRoomResponse> {
     try {
       const response = await apiClient.post<ApiBody>(
-        '/voip/register_room',
+        '/voip/register_room.php',
         data,
       );
       const body = response.data;
@@ -103,8 +103,8 @@ export const voipService = {
     status: 'active' | 'ended',
   ): Promise<VoIPRoomResponse> {
     try {
-      const response = await apiClient.put<ApiBody>(
-        '/voip/update_room',
+      const response = await apiClient.post<ApiBody>(
+        '/voip/update_room.php',
         { room_id: roomId, status },
       );
       const body = response.data;
@@ -122,7 +122,7 @@ export const voipService = {
   async getActiveRoom(userId: number): Promise<VoIPRoomResponse | null> {
     try {
       const response = await apiClient.get<ApiBody>(
-        '/voip/get_active_room',
+        '/voip/get_active_room.php',
         { params: { user_id: userId } },
       );
       const body = response.data;

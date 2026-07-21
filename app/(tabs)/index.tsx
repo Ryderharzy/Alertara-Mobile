@@ -144,10 +144,10 @@ export default function HomeScreen() {
           <View style={styles.welcomeTitleRow}>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.welcomeEyebrow}>
-                {isLoggedIn ? t("your_safety_first") : "Guest mode"}
+                {isLoggedIn ? t("home.title") : t("home.guestMode")}
               </ThemedText>
               <ThemedText style={styles.welcomeText}>
-                {t("please_remain_calm")}, {greetingName}!
+                {isLoggedIn ? `${t("home.greeting")}, ${greetingName}!` : t("home.welcome")}
               </ThemedText>
             </View>
             <View

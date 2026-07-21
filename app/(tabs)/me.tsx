@@ -343,29 +343,29 @@ export default function MeScreen() {
             <ThemedText style={styles.userEmail}>
               {isLoggedIn
                 ? displayEmail
-                : "Create an account to save your profile and preferences."}
+                : t("profile.createAccount")}
             </ThemedText>
             <ThemedText style={styles.userPhone}>
-              {isLoggedIn ? displayPhone : "No account connected"}
+              {isLoggedIn ? displayPhone : t("profile.noAccount")}
             </ThemedText>
           </View>
         </View>
 
         {!isLoggedIn && (
           <View style={styles.authPromptCard}>
-            <ThemedText style={styles.authPromptTitle}>Create or sign in</ThemedText>
+            <ThemedText style={styles.authPromptTitle}>{t("profile.createOrSignIn")}</ThemedText>
             <ThemedText style={styles.authPromptText}>
-              Register to manage your account, save details, and keep your profile synced.
+              {t("profile.registerDesc")}
             </ThemedText>
             <View style={styles.authActionRow}>
               <Pressable style={styles.primaryAuthButton} onPress={handleRegister}>
                 <ThemedText style={styles.primaryAuthButtonText}>
-                  Register
+                  {t("profile.register")}
                 </ThemedText>
               </Pressable>
               <Pressable style={styles.secondaryAuthButton} onPress={handleLogin}>
                 <ThemedText style={styles.secondaryAuthButtonText}>
-                  Log In
+                  {t("profile.login")}
                 </ThemedText>
               </Pressable>
             </View>
@@ -374,13 +374,13 @@ export default function MeScreen() {
 
         {isLoggedIn && (
           <View style={styles.authPromptCard}>
-            <ThemedText style={styles.authPromptTitle}>Account Details</ThemedText>
+            <ThemedText style={styles.authPromptTitle}>{t("profile.accountDetails")}</ThemedText>
             <ThemedText style={styles.authPromptText}>
-              Your account is linked and ready. Review your details below.
+              {t("profile.accountLinked")}
             </ThemedText>
             <Pressable style={styles.secondaryAuthButton} onPress={handleLogout}>
               <ThemedText style={styles.secondaryAuthButtonText}>
-                Log Out
+                {t("profile.logout")}
               </ThemedText>
             </Pressable>
           </View>
@@ -668,11 +668,11 @@ export default function MeScreen() {
             ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <ThemedText style={styles.modalTitle}>Change Password</ThemedText>
+            <ThemedText style={styles.modalTitle}>{t("profile.changePassword")}</ThemedText>
 
             <View style={styles.passwordInputContainer}>
               <ThemedText style={styles.inputLabel}>
-                Current Password
+                {t("profile.currentPassword")}
               </ThemedText>
               <TextInput
                 style={[
@@ -692,7 +692,7 @@ export default function MeScreen() {
             </View>
 
             <View style={styles.passwordInputContainer}>
-              <ThemedText style={styles.inputLabel}>New Password</ThemedText>
+              <ThemedText style={styles.inputLabel}>{t("profile.newPassword")}</ThemedText>
               <TextInput
                 style={[
                   styles.passwordInput,
@@ -712,7 +712,7 @@ export default function MeScreen() {
 
             <View style={styles.passwordInputContainer}>
               <ThemedText style={styles.inputLabel}>
-                Confirm Password
+                {t("profile.confirmPassword")}
               </ThemedText>
               <TextInput
                 style={[
@@ -736,7 +736,7 @@ export default function MeScreen() {
                 style={[styles.modalButton, { backgroundColor: "#ddd" }]}
                 onPress={() => setChangePasswordModalVisible(false)}
               >
-                <ThemedText style={styles.modalButtonText}>Cancel</ThemedText>
+                <ThemedText style={styles.modalButtonText}>{t("profile.cancel")}</ThemedText>
               </Pressable>
               <Pressable
                 style={[
@@ -746,7 +746,7 @@ export default function MeScreen() {
                 onPress={handleChangePassword}
               >
                 <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
-                  Change
+                  {t("profile.change")}
                 </ThemedText>
               </Pressable>
             </View>
@@ -771,11 +771,11 @@ export default function MeScreen() {
             ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <ThemedText style={styles.modalTitle}>Edit Profile</ThemedText>
+            <ThemedText style={styles.modalTitle}>{t("profile.editProfile")}</ThemedText>
 
             <View style={styles.passwordInputContainer}>
               <ThemedText style={styles.inputLabel}>
-                Name
+                {t("profile.name")}
               </ThemedText>
               <TextInput
                 style={[
@@ -795,7 +795,7 @@ export default function MeScreen() {
 
             <View style={styles.passwordInputContainer}>
               <ThemedText style={styles.inputLabel}>
-                Email
+                {t("profile.email")}
               </ThemedText>
               <TextInput
                 style={[
@@ -817,7 +817,7 @@ export default function MeScreen() {
 
             <View style={styles.passwordInputContainer}>
               <ThemedText style={styles.inputLabel}>
-                Phone
+                {t("profile.phone")}
               </ThemedText>
               <TextInput
                 style={[
@@ -841,7 +841,7 @@ export default function MeScreen() {
                 style={[styles.modalButton, { backgroundColor: "#ddd" }]}
                 onPress={() => setEditProfileModalVisible(false)}
               >
-                <ThemedText style={styles.modalButtonText}>Cancel</ThemedText>
+                <ThemedText style={styles.modalButtonText}>{t("profile.cancel")}</ThemedText>
               </Pressable>
               <Pressable
                 style={[
@@ -851,7 +851,7 @@ export default function MeScreen() {
                 onPress={handleSaveProfile}
               >
                 <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
-                  Save
+                  {t("profile.save")}
                 </ThemedText>
               </Pressable>
             </View>
@@ -876,7 +876,7 @@ export default function MeScreen() {
               <IconSymbol size={24} name="xmark" color={TealColors.primary} />
             </Pressable>
             <ThemedText style={styles.policyTitle}>
-              {policyType === "privacy" ? "Privacy Policy" : "Terms of Service"}
+              {policyType === "privacy" ? t("profile.privacyPolicy") : t("profile.termsOfService")}
             </ThemedText>
             <View style={{ width: 24 }} />
           </View>
