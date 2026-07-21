@@ -12,10 +12,9 @@ import {
     TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
-import { usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
 import { systemClusters, systemRegistry } from "@/data/central-command-systems";
-import { getTranslation } from "@/data/emergency-translations";
+import { useTranslate } from "@/hooks/useTranslate";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
@@ -33,7 +32,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { userProfile } = useAuth();
-  const { language } = usePreferences();
+  const { t } = useTranslate();
 
   const [activeClusterId, setActiveClusterId] = useState(systemClusters[0].id);
 
@@ -145,10 +144,10 @@ export default function HomeScreen() {
           <View style={styles.welcomeTitleRow}>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.welcomeEyebrow}>
-                {isLoggedIn ? getTranslation("your_safety_first", language) : "Guest mode"}
+                {isLoggedIn ? t("your_safety_first") : "Guest mode"}
               </ThemedText>
               <ThemedText style={styles.welcomeText}>
-                {getTranslation("please_remain_calm", language)}, {greetingName}!
+                {t("please_remain_calm")}, {greetingName}!
               </ThemedText>
             </View>
             <View
@@ -166,14 +165,14 @@ export default function HomeScreen() {
                 ]}
               >
                 {activeAlertCount > 0
-                  ? `${activeAlertCount} ${getTranslation("emergency_alert", language)}`
-                  : getTranslation("all_clear", language)}
+                  ? `${activeAlertCount} ${t("emergency_alert")}`
+                  : t("all_clear")}
               </ThemedText>
             </View>
           </View>
           <ThemedText style={styles.subText}>
             {isLoggedIn
-              ? getTranslation("help_is_on_the_way", language)
+              ? t("help_is_on_the_way")
               : "You can use the app without signing in, or save your profile anytime."}
           </ThemedText>
         </View>
@@ -198,12 +197,12 @@ export default function HomeScreen() {
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.glanceTitle}>
                 {activeAlertCount > 0
-                  ? `${activeAlertCount} ${getTranslation("emergency_alert", language)}`
-                  : getTranslation("all_clear", language)}
+                  ? `${activeAlertCount} ${t("emergency_alert")}`
+                  : t("all_clear")}
               </ThemedText>
               <ThemedText style={styles.glanceSubtitle}>
                 {activeAlertCount > 0
-                  ? getTranslation("stay_informed", language)
+                  ? t("stay_informed")
                   : "You’re currently in monitoring mode"}
               </ThemedText>
             </View>
