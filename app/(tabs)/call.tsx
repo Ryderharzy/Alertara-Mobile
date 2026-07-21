@@ -1,6 +1,7 @@
 import { Header } from "@/components/header";
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { VoIPCallScreen } from "@/components/voip-call-screen";
 import {
     Colors,
     DARK_BORDER,
@@ -9,12 +10,15 @@ import {
     LIGHT_CARD_BG,
     TealColors,
 } from "@/constants/theme";
+import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
-import React from "react";
+import { webViewJitsiService } from "@/services/voip/webview-jitsi-service";
+import React, { useState } from "react";
 import {
     Alert,
     Linking,
+    Modal,
     Pressable,
     SafeAreaView,
     ScrollView,
@@ -162,12 +166,27 @@ function callNumber(phone: string) {
 export default function CallScreen() {
   const { isDarkMode } = useTheme();
   const { t } = useTranslate();
+  const { userProfile } = useAuth();
+  const [voipCallActive, setVoipCallActive] = useState(false);
+  const [currentRoom, setCurrentRoom] = useState<string | null>(null);
 
   const handleShareLocation = () => {
     Alert.alert(
       "Share My Location",
       "Connect this action to your location-sharing flow or emergency message."
     );
+  };
+
+  const handleVoipCall = (hotlineId: string) => {
+    const roomName = webViewJitsiService.generateEmergencyRoomName(hotlineId);
+    setCurrentRoom(roomName);
+    setVoipCallActive(true);
+    webViewJitsiService.setCurrentHotlineId(hotlineId);
+  };
+
+  const handleEndVoipCall = () => {
+    setVoipCallActive(false);
+    setCurrentRoom(null);
   };
 
   return (
@@ -258,9 +277,16 @@ export default function CallScreen() {
                     </View>
                   </View>
                   <ThemedText style={styles.phoneText}>{item.phone}</ThemedText>
-                  <Pressable style={styles.callButton} onPress={() => callNumber(item.phone)}>
-                    <ThemedText style={styles.callButtonText}>Call Now</ThemedText>
-                  </Pressable>
+                  <View style={styles.buttonRow}>
+                    <Pressable style={styles.callButton} onPress={() => callNumber(item.phone)}>
+                      <IconSymbol size={16} name="phone.fill" color="#fff" />
+                      <ThemedText style={styles.callButtonText}>Call</ThemedText>
+                    </Pressable>
+                    <Pressable style={[styles.callButton, styles.voipButton]} onPress={() => handleVoipCall(item.id)}>
+                      <IconSymbol size={16} name="video.fill" color="#fff" />
+                      <ThemedText style={styles.callButtonText}>VoIP</ThemedText>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
             </View>
@@ -282,6 +308,23 @@ export default function CallScreen() {
           <ThemedText style={styles.prepItem}>Say how many people are affected.</ThemedText>
         </View>
       </ScrollView>
+      
+      {/* VoIP Call Modal */}
+      <Modal
+        visible={voipCallActive}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={handleEndVoipCall}
+      >
+        {currentRoom && (
+          <VoIPCallScreen
+            roomName={currentRoom}
+            displayName={userProfile?.name || 'Emergency User'}
+            onCallEnd={handleEndVoipCall}
+            hotlineId={webViewJitsiService.getCurrentHotlineId() || undefined}
+          />
+        )}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -425,11 +468,21 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: TealColors.primary,
   },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   callButton: {
+    flex: 1,
     backgroundColor: TealColors.primary,
     borderRadius: 14,
     paddingVertical: 10,
-    alignItems: "center",
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+  },
+  voipButton: {
+    backgroundColor: '#6366f1',
   },
   callButtonText: {
     color: "#fff",

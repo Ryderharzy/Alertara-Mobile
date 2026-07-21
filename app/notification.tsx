@@ -873,7 +873,7 @@ export default function NotificationScreen() {
         if (gnewsApiKey) {
           try {
             const params = new URLSearchParams({
-              q: 'Philippines',
+              q: 'Quezon City OR "Metro Manila" OR Philippines',
               lang: "en",
               max: "6",
               sortby: "publishedAt",
@@ -904,7 +904,7 @@ export default function NotificationScreen() {
         // Fallback to NewsData if GNews failed or no key
         if (articles.length === 0) {
           articles = await fetchFromNewsDataAPI(
-            'Philippines',
+            'Quezon City OR "Metro Manila" OR Philippines',
             newsdataApiKey
           );
           sourceName = "NewsData";
