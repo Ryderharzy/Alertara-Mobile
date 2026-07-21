@@ -6,6 +6,7 @@ import { TealColors } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
 import { barangayWeatherPoints } from "@/data/barangay-weather-points";
 import { evacuationLocations, type EvacuationLocation } from "@/data/evacuation-locations";
+import { useTranslate } from "@/hooks/useTranslate";
 import { LocationService } from "@/services/location/location-service";
 import type { UserLocation } from "@/types/crime";
 import { calculateDistance, formatDistance } from "@/utils/geo-utils";

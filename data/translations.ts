@@ -544,3 +544,5 @@ const translations: Record<string, LangMap> = {
   "auth.alreadyHaveAccount": { en: "Already have an account?", es: "¿Ya tienes una cuenta?", fr: "Vous avez déjà un compte ?", tl: "May account ka na?", ceb: "Naa nay account ka?", war: "Naa na account ka?", hil: "Naa na account ka?" },
   "auth.loginNow": { en: "Login now", es: "Inicia sesión ahora", fr: "Connectez-vous maintenant", tl: "Mag-login na", ceb: "Mag-login na", war: "Mag-login na", hil: "Mag-login na" },
 };
+
+export default translations;
