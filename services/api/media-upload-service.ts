@@ -13,6 +13,7 @@ export interface MediaUploadData {
   };
   conversation_id?: number;
   report_id?: number;
+  imageOnly?: boolean;
 }
 
 export interface MediaUploadResponse {
@@ -71,6 +72,9 @@ export const mediaUploadService = {
       }
       if (data.report_id) {
         url.searchParams.append('report_id', data.report_id.toString());
+      }
+      if (data.imageOnly) {
+        url.searchParams.append('image_only', '1');
       }
 
       console.log('🚀 Starting upload to:', url.toString());

@@ -15,8 +15,13 @@ import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { systemClusters, systemRegistry } from "@/data/central-command-systems";
 import { useTranslate } from "@/hooks/useTranslate";
+import {
+  alertFeedService,
+  type AlertFeedItem,
+} from "@/services/api/alert-feed-service";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
     Image,
     NativeScrollEvent,
@@ -35,6 +40,7 @@ export default function HomeScreen() {
   const { t } = useTranslate();
 
   const [activeClusterId, setActiveClusterId] = useState(systemClusters[0].id);
+  const [activeAlerts, setActiveAlerts] = useState<AlertFeedItem[]>([]);
 
   const [scrollMetrics, setScrollMetrics] = useState({
     contentHeight: 1,
@@ -54,8 +60,26 @@ export default function HomeScreen() {
     .filter(Boolean);
   const isLoggedIn = Boolean(userProfile?.id);
   const greetingName = userProfile?.name?.split(" ")[0] ?? "there";
-  const activeAlertCount = 2;
+  const activeAlertCount = activeAlerts.length;
+  const latestAlert = activeAlerts[0];
   const recentSystemSummary = activeSystems.slice(0, 3);
+
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      void alertFeedService
+        .getActiveAlerts()
+        .then((alerts) => {
+          if (mounted) setActiveAlerts(alerts);
+        })
+        .catch(() => {
+          // Keep the home screen usable if the alert feed is temporarily offline.
+        });
+      return () => {
+        mounted = false;
+      };
+    }, []),
+  );
 
   const handleSystemPress = (systemId: string) => {
     router.push(`/central-command/${systemId}`);
@@ -189,12 +213,43 @@ export default function HomeScreen() {
             ]}
             onPress={() => router.push("/notification")}
           >
-            <IconSymbol
-              name="bell.badge"
-              size={20}
-              color={activeAlertCount > 0 ? "#e53935" : "#059669"}
-            />
+            <View
+              style={[
+                styles.alertIcon,
+                { backgroundColor: activeAlertCount > 0 ? "#dc2626" : "#059669" },
+              ]}
+            >
+              <IconSymbol
+                name={activeAlertCount > 0 ? "exclamationmark.triangle" : "checkmark.circle"}
+                size={20}
+                color="#fff"
+              />
+            </View>
             <View style={{ flex: 1 }}>
+              {latestAlert ? (
+                <>
+                  <View style={styles.alertMetaRow}>
+                    <ThemedText style={styles.alertCategory} numberOfLines={1}>
+                      {latestAlert.category}
+                    </ThemedText>
+                    <View style={styles.severityBadge}>
+                      <ThemedText style={styles.severityText}>
+                        {latestAlert.severity.toUpperCase()}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  <ThemedText style={styles.glanceTitle} numberOfLines={2}>
+                    {latestAlert.title}
+                  </ThemedText>
+                  <ThemedText style={styles.glanceSubtitle} numberOfLines={3}>
+                    {latestAlert.message}
+                  </ThemedText>
+                  <ThemedText style={styles.alertTimestamp}>
+                    {new Date(latestAlert.createdAt).toLocaleString()}
+                  </ThemedText>
+                </>
+              ) : (
+                <>
               <ThemedText style={styles.glanceTitle}>
                 {activeAlertCount > 0
                   ? `${activeAlertCount} ${t("emergency_alert")}`
@@ -205,6 +260,8 @@ export default function HomeScreen() {
                   ? t("stay_informed")
                   : "You’re currently in monitoring mode"}
               </ThemedText>
+                </>
+              )}
             </View>
             <IconSymbol
               name="chevron.right"
@@ -650,7 +707,7 @@ const styles = StyleSheet.create({
   },
   glanceCard: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     padding: 16,
     borderRadius: 18,
@@ -658,12 +715,52 @@ const styles = StyleSheet.create({
   },
   glanceTitle: {
     fontWeight: "800",
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 21,
   },
   glanceSubtitle: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 18,
     color: "#666",
-    marginTop: 2,
+    marginTop: 5,
+  },
+  alertIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  alertCategory: {
+    flex: 1,
+    color: "#ef4444",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  severityBadge: {
+    borderRadius: 999,
+    backgroundColor: "#dc2626",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  severityText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+  },
+  alertTimestamp: {
+    color: "#8b9491",
+    fontSize: 10,
+    marginTop: 8,
   },
   quickActionsSection: {
     marginBottom: 26,

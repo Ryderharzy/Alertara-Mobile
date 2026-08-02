@@ -9,6 +9,7 @@ import {
   ConversationThread,
   formatRelativeTime,
   getSystemAccent,
+  isReportCompleted,
   loadConversationInbox,
   resolveStatusColor,
   threadToChatParams,
@@ -123,6 +124,19 @@ export default function MessagesScreen() {
 
   const handleClear = () => {
     if (!threads.length) return;
+    const hasActiveReport = threads.some((thread) =>
+      (thread.id.startsWith("report-") ||
+        thread.id.startsWith("pending-") ||
+        thread.id.startsWith("incident-")) &&
+      !isReportCompleted(thread.status),
+    );
+    if (hasActiveReport) {
+      Alert.alert(
+        "Active report conversations cannot be deleted",
+        "A report can be removed only after the response team marks it Completed.",
+      );
+      return;
+    }
     Alert.alert(
       t("messages.clearTitle", "Clear conversations?"),
       t(

@@ -182,8 +182,8 @@ async function fetchFromNewsDataAPI(
   apiKey: string | undefined,
 ): Promise<GNewsArticle[]> {
   if (!apiKey) {
-    console.error("❌ NewsData API key is missing");
-    throw new Error("Missing NewsData API key.");
+    // Local news is optional when the third-party API key is not configured.
+    return [];
   }
 
   const params = new URLSearchParams({
@@ -1123,7 +1123,7 @@ export default function NotificationScreen() {
         alertAcknowledgmentService.acknowledgeAlert({
           alert_id: numericAlertId,
           user_id: userProfile.id,
-          response_status: citizenResponses[alertId] || 'safe',
+          status: citizenResponses[alertId] || 'safe',
         }).catch((error: unknown) => {
           console.error("Failed to sync alert acknowledgment to backend:", error);
           // Don't throw error - local state update succeeded

@@ -1,176 +1,55 @@
-import React, { useRef } from "react";
-import { GestureResponderEvent, Pressable, StyleSheet } from "react-native";
-import Animated, {
-    Easing,
-    runOnJS,
-    useAnimatedReaction,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withSequence,
-    withTiming,
-} from "react-native-reanimated";
-import { IconSymbol } from "./ui/icon-symbol";
+import { FontAwesome5 } from '@expo/vector-icons';
+import React from 'react';
+import { GestureResponderEvent, Pressable, StyleSheet, View } from 'react-native';
 
 const BUTTON_SIZE = 70;
 
 interface EmergencyCallButtonProps {
-  onPress?: (e: GestureResponderEvent) => void;
+  onPress?: (event: GestureResponderEvent) => void;
 }
 
 export function EmergencyCallButton({ onPress }: EmergencyCallButtonProps) {
-  const fillProgress = useSharedValue(0);
-  const iconRotation = useSharedValue(0);
-  const isAnimating = useSharedValue(false);
-  const hasTriggeredNavigation = useRef(false);
-
-  // Watch for when fillProgress reaches 1 (red takes over)
-  useAnimatedReaction(
-    () => fillProgress.value,
-    (value) => {
-      if (
-        value >= 0.99 &&
-        !hasTriggeredNavigation.current &&
-        isAnimating.value
-      ) {
-        hasTriggeredNavigation.current = true;
-        // Trigger navigation callback
-        if (onPress) {
-          runOnJS(onPress)({} as GestureResponderEvent);
-        }
-      }
-    },
-  );
-
-  const startAnimation = () => {
-    hasTriggeredNavigation.current = false;
-    isAnimating.value = true;
-
-    // Continuous loop: fill expands (0->1) then resets for next cycle
-    fillProgress.value = withRepeat(
-      withSequence(
-        withTiming(1, {
-          duration: 1200,
-          easing: Easing.inOut(Easing.quad),
-        }),
-        withTiming(0, {
-          duration: 300,
-          easing: Easing.out(Easing.quad),
-        }),
-      ),
-      -1, // repeat indefinitely
-      true, // reverse
-    );
-
-    // Continuous icon shake animation
-    iconRotation.value = withRepeat(
-      withSequence(
-        withTiming(15, {
-          duration: 100,
-          easing: Easing.inOut(Easing.quad),
-        }),
-        withTiming(-15, {
-          duration: 100,
-          easing: Easing.inOut(Easing.quad),
-        }),
-        withTiming(0, {
-          duration: 100,
-          easing: Easing.inOut(Easing.quad),
-        }),
-      ),
-      -1,
-      false,
-    );
-  };
-
-  const stopAnimation = () => {
-    isAnimating.value = false;
-    fillProgress.value = withTiming(0, {
-      duration: 300,
-      easing: Easing.out(Easing.quad),
-    });
-    iconRotation.value = 0;
-  };
-
-  const fillStyle = useAnimatedStyle(() => {
-    const scale = fillProgress.value;
-    const opacity = 1 - fillProgress.value * 0.3;
-
-    return {
-      transform: [{ scale }],
-      opacity,
-    };
-  });
-
-  const iconStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ rotate: `${iconRotation.value}deg` }],
-    };
-  });
-
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Start emergency call"
+      accessibilityHint="Opens the direct emergency call screen"
       onPress={onPress}
-      onPressIn={startAnimation}
-      onPressOut={stopAnimation}
-      style={styles.container}
+      hitSlop={12}
+      style={({ pressed }) => [styles.touchTarget, pressed && styles.pressed]}
     >
-      {/* Base green button */}
-      <Animated.View style={[styles.button, styles.baseButton]} />
-
-      {/* Orange to Red radial fill (center) */}
-      <Animated.View style={[styles.fillLayer, styles.orangeFill, fillStyle]} />
-
-      {/* Red radial fill (middle) */}
-      <Animated.View style={[styles.fillLayer, styles.redFill, fillStyle]} />
-
-      {/* Icon with ringing animation */}
-      <Animated.View style={[styles.iconContainer, iconStyle]}>
-        <IconSymbol name="phone" size={28} color="#fff" />
-      </Animated.View>
+      <View style={styles.button}>
+        <FontAwesome5 name="phone-alt" size={29} color="#ffffff" solid />
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  touchTarget: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: BUTTON_SIZE / 2,
+    zIndex: 102,
+    elevation: 24,
   },
   button: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#16a34a',
+    borderWidth: 4,
+    borderColor: '#071816',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.4,
+    shadowRadius: 7,
+    elevation: 24,
   },
-  baseButton: {
-    position: "absolute",
-    backgroundColor: "#4CAF50",
-  },
-  fillLayer: {
-    position: "absolute",
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    borderRadius: BUTTON_SIZE / 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  orangeFill: {
-    backgroundColor: "#FF9800",
-  },
-  redFill: {
-    backgroundColor: "#F44336",
-  },
-  iconContainer: {
-    position: "absolute",
-    zIndex: 10,
+  pressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.95 }],
   },
 });

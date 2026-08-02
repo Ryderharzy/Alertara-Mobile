@@ -82,8 +82,11 @@ const MAX_HISTORY = 50;
 const statusColors: Record<IncidentStatus, string> = {
   pending: "#e3b341",
   received: "#3b82f6",
+  dispatching: "#f59e0b",
+  ongoing_dispatch: "#8b5cf6",
   in_progress: "#8b5cf6",
   resolved: "#2f9d63",
+  completed: "#16a34a",
   rejected: "#ef4444",
 };
 
@@ -126,7 +129,7 @@ export default function ChatScreen() {
   const categoryLabel = category ? decodeURIComponent(category) : "General";
   const iconName = threadIcon || "robot";
   const reportId = parseReportIdFromThreadId(threadId);
-  const canChangeStatus = reportId !== null;
+  const canChangeStatus = false;
   const currentStatusKey = statusLabel ? statusLabelToKey(statusLabel) : null;
   const statusColor =
     currentStatusKey && statusColors[currentStatusKey]
@@ -136,6 +139,7 @@ export default function ChatScreen() {
 
   // Check if this is a general support chat (should connect to human operators)
   const isGeneralSupport = threadId === "general" || categoryLabel === "General";
+  const supportsResponseTeamChat = isGeneralSupport || reportId !== null;
 
   useEffect(() => {
     if (rawStatus) {
@@ -143,9 +147,40 @@ export default function ChatScreen() {
     }
   }, [rawStatus]);
 
-  // Load real-time conversation if it's general support
   useEffect(() => {
-    if (!isGeneralSupport) return;
+    if (reportId === null) return;
+    let active = true;
+    const syncStatus = async () => {
+      try {
+        const report = await emergencyReportService.getReport(reportId);
+        if (!active || !report) return;
+        const nextStatus = formatReportStatusLabel(report.status);
+        setStatusLabel(nextStatus);
+        await upsertConversationThread({
+          id: threadId,
+          title: alertTitle,
+          category: categoryLabel,
+          status: nextStatus,
+          icon: iconName,
+          reportId,
+          conversationId: report.conversation_id,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {
+        // Keep the last known status while the device is offline.
+      }
+    };
+    void syncStatus();
+    const timer = setInterval(syncStatus, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [alertTitle, categoryLabel, iconName, reportId, threadId]);
+
+  // Load the server conversation created for general support or an incident report.
+  useEffect(() => {
+    if (!supportsResponseTeamChat) return;
 
     const loadRealTimeConversation = async () => {
       try {
@@ -195,7 +230,37 @@ export default function ChatScreen() {
     };
 
     loadRealTimeConversation();
-  }, [threadId, isGeneralSupport, userProfile?.id]);
+  }, [threadId, supportsResponseTeamChat, userProfile?.id]);
+
+  // Keep the mobile thread synchronized with replies from the admin console.
+  useEffect(() => {
+    if (!isRealTimeChat || !conversationId) return;
+    let active = true;
+
+    const refreshMessages = async () => {
+      try {
+        const apiMessages = await chatService.getMessages(conversationId, userProfile?.id);
+        if (!active) return;
+        setMessages(apiMessages.map((msg: ApiChatMessage) => ({
+          id: msg.message_id.toString(),
+          from: msg.sender_type === 'admin' ? 'bot' : 'user',
+          text: msg.message_text,
+          sentAt: new Date(msg.created_at).getTime(),
+          attachmentUrl: msg.attachment_url,
+          attachmentType: msg.attachment_mime,
+        })));
+      } catch (error) {
+        console.warn('Unable to refresh response-team messages:', error);
+      }
+    };
+
+    void refreshMessages();
+    const timer = setInterval(() => void refreshMessages(), 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [conversationId, isRealTimeChat, userProfile?.id]);
 
   const promptChips = useMemo(() => {
     const key = (category ?? "General").toString();
@@ -323,19 +388,22 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg].slice(-MAX_HISTORY));
     setInput("");
 
-    // Handle real-time chat for general support
-    if (isGeneralSupport && isRealTimeChat) {
+    // Handle real-time chat for general support and submitted incident reports.
+    if (supportsResponseTeamChat && isRealTimeChat) {
       try {
         let currentConvId = conversationId;
         
         // Create conversation if it doesn't exist
         if (!currentConvId) {
+          if (!isGeneralSupport) {
+            throw new Error('This report is still connecting to the response team. Please reopen it and try again.');
+          }
           const newConv = await chatService.createConversation({
             user_id: userProfile?.id,
             user_name: userProfile?.name || 'Guest User',
             user_email: userProfile?.email || undefined,
             user_phone: userProfile?.phone || undefined,
-            user_concern: 'general',
+            user_concern: 'general_enquiry',
             is_guest: !userProfile?.id ? 1 : 0,
             message: trimmed,
           });
@@ -380,7 +448,7 @@ export default function ChatScreen() {
               user_name: userProfile?.name || 'Guest User',
               user_email: userProfile?.email || undefined,
               user_phone: userProfile?.phone || undefined,
-              user_concern: 'general',
+              user_concern: 'general_enquiry',
               is_guest: !userProfile?.id ? 1 : 0,
               message: trimmed,
             });
@@ -492,7 +560,7 @@ export default function ChatScreen() {
       });
 
       // For general support chats with real-time connection
-      if (isGeneralSupport && isRealTimeChat && conversationId) {
+      if (supportsResponseTeamChat && isRealTimeChat && conversationId) {
         await chatService.sendMessage({
           conversation_id: conversationId,
           sender_id: userProfile?.id,
@@ -665,17 +733,19 @@ export default function ChatScreen() {
                 </Pressable>
               ) : null}
             </View>
-            <Pressable
-              onPress={handleReset}
-              style={styles.resetBtn}
-              accessibilityLabel="Reset chat history"
-            >
-              <IconSymbol
-                name="arrow.counterclockwise"
-                size={18}
-                color="#e0f2f1"
-              />
-            </Pressable>
+            {reportId === null ? (
+              <Pressable
+                onPress={handleReset}
+                style={styles.resetBtn}
+                accessibilityLabel="Reset chat history"
+              >
+                <IconSymbol
+                  name="arrow.counterclockwise"
+                  size={18}
+                  color="#e0f2f1"
+                />
+              </Pressable>
+            ) : null}
           </View>
 
           <View style={[styles.threadCard, { backgroundColor: cardBg, flex: 1 }]}>

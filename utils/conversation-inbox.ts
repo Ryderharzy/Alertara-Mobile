@@ -39,6 +39,8 @@ export type ConversationThread = {
   lastMessageFrom?: "user" | "bot" | "system";
   updatedAt: string;
   unreadCount?: number;
+  reportId?: number;
+  conversationId?: number;
 };
 
 type StoredChatMessage = {
@@ -52,6 +54,7 @@ export const INBOX_INDEX_KEY = "conversation-inbox-index";
 export const LEGACY_INCIDENT_INDEX_KEY = "incident-chat-index";
 export const CHAT_THREAD_PREFIX = "chat-thread-";
 export const MAX_INBOX_THREADS = 50;
+export const READ_MARK_PREFIX = "conversation-read-at-";
 
 const SYSTEM_ACCENTS: Record<ConversationSystemId, string> = {
   ecs: "#16a34a",
@@ -65,10 +68,17 @@ const SYSTEM_ACCENTS: Record<ConversationSystemId, string> = {
 export const statusColors: Record<IncidentStatus, string> = {
   pending: "#e3b341",
   received: "#3b82f6",
+  dispatching: "#f59e0b",
+  ongoing_dispatch: "#8b5cf6",
   in_progress: "#8b5cf6",
   resolved: "#2f9d63",
+  completed: "#16a34a",
   rejected: "#ef4444",
 };
+
+export function isReportCompleted(status?: string): boolean {
+  return status?.trim().toLowerCase().replace(/\s+/g, "_") === "completed";
+}
 
 export function getSystemAccent(systemId: ConversationSystemId): string {
   return SYSTEM_ACCENTS[systemId] ?? SYSTEM_ACCENTS.ecs;
@@ -324,10 +334,12 @@ function serverReportToThread(report: EmergencyReportResponse): ConversationThre
     lastMessage: reportToThreadTitle(report.description),
     lastMessageFrom: "system",
     updatedAt: report.created_at,
+    reportId: report.id,
+    conversationId: report.conversation_id,
   };
 }
 
-function pickLatestIso(dates: Array<string | undefined>): string {
+function pickLatestIso(dates: (string | undefined)[]): string {
   const valid = dates
     .filter(Boolean)
     .map((value) => new Date(value as string).getTime())
@@ -342,14 +354,22 @@ function pickLatestIso(dates: Array<string | undefined>): string {
 
 async function mergeServerReports(
   threads: ConversationThread[],
-  userId: number,
+  options: { userId?: number; reportIds?: number[] },
 ): Promise<ConversationThread[]> {
   try {
-    const reports = await emergencyReportService.getReports(userId);
+    const reports = options.userId
+      ? await emergencyReportService.getReports(options.userId)
+      : await emergencyReportService.getReportsByIds(options.reportIds ?? []);
     const merged = new Map(threads.map((thread) => [thread.id, thread]));
 
     for (const report of reports) {
       const threadId = buildReportThreadId(report.id);
+      if (report.conversation_id) {
+        await AsyncStorage.setItem(
+          `conversation-${threadId}`,
+          String(report.conversation_id),
+        );
+      }
       const serverThread = serverReportToThread(report);
       const local = merged.get(threadId);
       const preview = await getLastMessagePreview(threadId);
@@ -375,6 +395,8 @@ async function mergeServerReports(
         systemLabel: local.systemLabel ?? serverThread.systemLabel,
         type: local.type ?? serverThread.type,
         status: serverThread.status,
+        reportId: serverThread.reportId,
+        conversationId: serverThread.conversationId,
         icon: local.icon ?? serverThread.icon,
         lastMessage:
           preview.lastMessage ?? local.lastMessage ?? serverThread.lastMessage,
@@ -451,22 +473,33 @@ export async function loadConversationInbox(
   threads = await mergePendingQueue(threads);
 
   if (options?.userId) {
-    threads = await mergeServerReports(threads, options.userId);
+    threads = await mergeServerReports(threads, { userId: options.userId });
+  } else {
+    const reportIds = threads
+      .filter((thread) => thread.id.startsWith("report-"))
+      .map((thread) => Number.parseInt(thread.id.slice("report-".length), 10))
+      .filter((id) => Number.isFinite(id));
+    if (reportIds.length) {
+      threads = await mergeServerReports(threads, { reportIds });
+    }
   }
 
   const enriched = await Promise.all(
     threads.map(async (thread) => {
       const preview = await getLastMessagePreview(thread.id);
-      return {
+      const mergedThread = {
         ...thread,
         title: thread.title.includes("%") ? decodeURIComponent(thread.title) : thread.title,
         lastMessage: preview.lastMessage ?? thread.lastMessage,
         lastMessageFrom: preview.lastMessageFrom ?? thread.lastMessageFrom,
         updatedAt: preview.updatedAt ?? thread.updatedAt,
       };
+      return {
+        ...mergedThread,
+        unreadCount: (await isThreadUnread(mergedThread)) ? 1 : 0,
+      };
     }),
   );
-
   enriched.sort(
     (a, b) =>
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
@@ -486,6 +519,8 @@ export type UpsertThreadInput = {
   lastMessage?: string;
   lastMessageFrom?: "user" | "bot" | "system";
   updatedAt?: string;
+  reportId?: number;
+  conversationId?: number;
 };
 
 export async function upsertConversationThread(
@@ -508,6 +543,8 @@ export async function upsertConversationThread(
     lastMessage: input.lastMessage,
     lastMessageFrom: input.lastMessageFrom,
     updatedAt: now,
+    reportId: input.reportId,
+    conversationId: input.conversationId,
   };
 
   const filtered = threads.filter((t) => t.id !== input.id);
@@ -552,7 +589,59 @@ export async function removeConversationThread(threadId: string): Promise<void> 
   await writeInboxIndex(threads.filter((thread) => thread.id !== threadId));
 }
 
+export async function markConversationThreadRead(threadId: string): Promise<void> {
+  await AsyncStorage.setItem(`${READ_MARK_PREFIX}${threadId}`, new Date().toISOString());
+}
+
+async function isThreadUnread(thread: ConversationThread): Promise<boolean> {
+  if (thread.lastMessageFrom !== "bot") return false;
+  try {
+    const raw = await AsyncStorage.getItem(`${READ_MARK_PREFIX}${thread.id}`);
+    if (!raw) return true;
+    const readAt = new Date(raw).getTime();
+    const updatedAt = new Date(thread.updatedAt).getTime();
+    return Number.isFinite(updatedAt) && (!Number.isFinite(readAt) || updatedAt > readAt);
+  } catch {
+    return thread.lastMessageFrom === "bot";
+  }
+}
+
+export async function deleteCompletedReportConversation(
+  thread: ConversationThread,
+  userId?: number,
+): Promise<void> {
+  if (!isReportCompleted(thread.status)) {
+    throw new Error("Active reports cannot be deleted.");
+  }
+
+  const reportId = thread.reportId ?? (
+    thread.id.startsWith("report-")
+      ? Number.parseInt(thread.id.slice("report-".length), 10)
+      : Number.NaN
+  );
+  if (userId && Number.isFinite(reportId)) {
+    await emergencyReportService.deleteCompletedReport(reportId, userId);
+  }
+
+  await removeConversationThread(thread.id);
+  await AsyncStorage.removeItem(`${CHAT_THREAD_PREFIX}${thread.id}`);
+  await AsyncStorage.removeItem(`conversation-${thread.id}`);
+}
+
 export async function clearConversationInbox(): Promise<void> {
+  const threads = await readInboxIndex();
+  const hasActiveReport = threads.some(
+    (thread) =>
+      (thread.id.startsWith("report-") ||
+        thread.id.startsWith("pending-") ||
+        thread.id.startsWith("incident-")) &&
+      !isReportCompleted(thread.status),
+  );
+  if (hasActiveReport) {
+    throw new Error(
+      "Active report conversations cannot be deleted until ERS marks them Completed.",
+    );
+  }
   await AsyncStorage.removeItem(INBOX_INDEX_KEY);
   await AsyncStorage.removeItem(LEGACY_INCIDENT_INDEX_KEY);
 }
