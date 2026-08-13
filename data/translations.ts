@@ -1,6 +1,6 @@
 import { LanguageOption } from "@/context/preferences-context";
 
-type LangMap = Record<LanguageOption, string>;
+type LangMap = Record<LanguageOption, string> & Partial<Record<string, string>>;
 
 const translations: Record<string, LangMap> = {
   // Navigation

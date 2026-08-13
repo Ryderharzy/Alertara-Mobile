@@ -15,11 +15,16 @@ import {
     TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
-import { LanguageOption, usePreferences } from "@/context/preferences-context";
+import { LanguageOption, NotificationLanguageOption, usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
 import { getTranslation } from "@/data/emergency-translations";
 import { useTranslate } from "@/hooks/useTranslate";
+import { EMERGENCY_ALERT_CHANNEL_ID, notificationChannelForSound } from "@/constants/notification-channels";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
+import * as Notifications from "expo-notifications";
+import * as IntentLauncher from "expo-intent-launcher";
 import { useGlobalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -28,15 +33,37 @@ import {
     Animated,
     Easing,
     InteractionManager,
+    LayoutAnimation,
+    Linking,
     Modal,
+    Platform,
     Pressable,
     SafeAreaView,
+    UIManager,
     ScrollView,
     StyleSheet,
     TextInput,
     View,
 } from "react-native";
 
+const NOTIFICATION_PREF_KEYS = {
+  sound: "alertara.notification.soundEnabled",
+  popOnScreen: "alertara.notification.popOnScreen",
+  lockScreen: "alertara.notification.lockScreen",
+  vibration: "alertara.notification.vibration",
+  soundChoice: "alertara.notification.soundChoice",
+} as const;
+
+type EmergencyNotificationPrefs = {
+  soundEnabled: boolean;
+  popOnScreen: boolean;
+  lockScreen: boolean;
+  vibration: boolean;
+  soundChoice: string;
+};
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 export default function MeScreen() {
   const { isDarkMode, toggleTheme } = useTheme();
   const router = useRouter();
@@ -51,6 +78,8 @@ export default function MeScreen() {
   const {
     language,
     setLanguage,
+    notificationLanguage,
+    setNotificationLanguage,
     alertPreferences,
     updateAlertPreferences,
     incidentHistory,
@@ -74,6 +103,26 @@ export default function MeScreen() {
   const [editPhone, setEditPhone] = useState("");
   const [alertCategoriesExpanded, setAlertCategoriesExpanded] = useState(false);
   const [notificationChannelsExpanded, setNotificationChannelsExpanded] = useState(false);
+  const [notificationPermissionLabel, setNotificationPermissionLabel] = useState("Checking...");
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true);
+  const [notificationPopOnScreen, setNotificationPopOnScreen] = useState(true);
+  const [notificationLockScreen, setNotificationLockScreen] = useState(true);
+  const [notificationVibration, setNotificationVibration] = useState(true);
+  const [notificationSoundChoice, setNotificationSoundChoice] = useState("default");
+  const animateSettingsDropdown = useCallback(() => {
+    LayoutAnimation.configureNext({
+      duration: 240,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+  }, []);
   const isLoggedIn = Boolean(userProfile?.id);
   const displayName = userProfile?.name ?? "Guest Mode";
   const displayEmail = userProfile?.email ?? "No account connected";
@@ -81,12 +130,12 @@ export default function MeScreen() {
 
   const languageLabels: Record<LanguageOption, string> = {
     en: t("language.english", "English"),
-    es: t("language.spanish", "Español"),
-    fr: t("language.french", "Français"),
-    tl: t("language.tagalog", "Filipino (Tagalog)"),
-    ceb: t("language.cebuano", "Cebuano (Bisaya)"),
-    war: t("language.waray", "Waray"),
-    hil: t("language.hiligaynon", "Hiligaynon (Ilonggo)"),
+    tl: t("language.tagalog", "Filipino"),
+  };
+  const notificationLanguageLabels: Record<NotificationLanguageOption, string> = {
+    en: "English",
+    tl: "Filipino",
+    both: "Both",
   };
 
   const handleChangePassword = () => {
@@ -220,6 +269,17 @@ export default function MeScreen() {
     );
   };
 
+  const handleNotificationLanguageSelect = async (value: string) => {
+    const langValue = (value === "tl" || value === "both" ? value : "en") as NotificationLanguageOption;
+    if (langValue === notificationLanguage) return;
+    try {
+      await setNotificationLanguage(langValue);
+      Alert.alert("Notification language updated", "Emergency alerts will use " + notificationLanguageLabels[langValue] + ".");
+    } catch {
+      Alert.alert("Could not save notification language", "Please try again.");
+    }
+  };
+
   const handleViewHistory = () => {
     if (!isLoggedIn) {
       Alert.alert("Login Required", "Please log in to view your history.");
@@ -227,6 +287,155 @@ export default function MeScreen() {
     }
     router.push("/history" as any);
   };
+  const applyEmergencyNotificationChannel = useCallback(async (prefs: EmergencyNotificationPrefs) => {
+    if (Platform.OS !== "android") return;
+
+    await Notifications.setNotificationChannelAsync(notificationChannelForSound(prefs.soundChoice), {
+      name: "Emergency Alerts",
+      description: "Critical Alertara alerts, reports, and emergency updates.",
+      importance: prefs.popOnScreen
+        ? Notifications.AndroidImportance.MAX
+        : Notifications.AndroidImportance.DEFAULT,
+      sound: prefs.soundEnabled && prefs.soundChoice !== "silent" ? "default" : null,
+      enableVibrate: prefs.vibration,
+      vibrationPattern: prefs.vibration ? [0, 350, 160, 350] : [0],
+      lockscreenVisibility: prefs.lockScreen
+        ? Notifications.AndroidNotificationVisibility.PUBLIC
+        : Notifications.AndroidNotificationVisibility.PRIVATE,
+      bypassDnd: false,
+      showBadge: true,
+      lightColor: "#E63946",
+    });
+  }, []);
+
+  const refreshNotificationPermissionLabel = useCallback(async () => {
+    const permissions = await Notifications.getPermissionsAsync();
+    setNotificationPermissionLabel(
+      permissions.granted || permissions.status === "granted" ? "Allowed" : "Needs permission",
+    );
+  }, []);
+
+  const loadEmergencyNotificationSettings = useCallback(async () => {
+    const [sound, popOnScreen, lockScreen, vibration, soundChoice] = await Promise.all([
+      AsyncStorage.getItem(NOTIFICATION_PREF_KEYS.sound),
+      AsyncStorage.getItem(NOTIFICATION_PREF_KEYS.popOnScreen),
+      AsyncStorage.getItem(NOTIFICATION_PREF_KEYS.lockScreen),
+      AsyncStorage.getItem(NOTIFICATION_PREF_KEYS.vibration),
+      AsyncStorage.getItem(NOTIFICATION_PREF_KEYS.soundChoice),
+    ]);
+
+    const prefs = {
+      soundEnabled: sound !== "false",
+      popOnScreen: popOnScreen !== "false",
+      lockScreen: lockScreen !== "false",
+      vibration: vibration !== "false",
+      soundChoice: soundChoice || "default",
+    };
+
+    setNotificationSoundEnabled(prefs.soundEnabled);
+    setNotificationPopOnScreen(prefs.popOnScreen);
+    setNotificationLockScreen(prefs.lockScreen);
+    setNotificationVibration(prefs.vibration);
+    setNotificationSoundChoice(prefs.soundChoice);
+    await refreshNotificationPermissionLabel();
+    await applyEmergencyNotificationChannel(prefs);
+  }, [applyEmergencyNotificationChannel, refreshNotificationPermissionLabel]);
+
+  const saveEmergencyNotificationSettings = useCallback(
+    async (updates: Partial<EmergencyNotificationPrefs>) => {
+      const prefs = {
+        soundEnabled: notificationSoundEnabled,
+        popOnScreen: notificationPopOnScreen,
+        lockScreen: notificationLockScreen,
+        vibration: notificationVibration,
+        soundChoice: notificationSoundChoice,
+        ...updates,
+      };
+
+      setNotificationSoundEnabled(prefs.soundEnabled);
+      setNotificationPopOnScreen(prefs.popOnScreen);
+      setNotificationLockScreen(prefs.lockScreen);
+      setNotificationVibration(prefs.vibration);
+      setNotificationSoundChoice(prefs.soundChoice);
+
+      await Promise.all([
+        AsyncStorage.setItem(NOTIFICATION_PREF_KEYS.sound, String(prefs.soundEnabled)),
+        AsyncStorage.setItem(NOTIFICATION_PREF_KEYS.popOnScreen, String(prefs.popOnScreen)),
+        AsyncStorage.setItem(NOTIFICATION_PREF_KEYS.lockScreen, String(prefs.lockScreen)),
+        AsyncStorage.setItem(NOTIFICATION_PREF_KEYS.vibration, String(prefs.vibration)),
+        AsyncStorage.setItem(NOTIFICATION_PREF_KEYS.soundChoice, prefs.soundChoice),
+      ]);
+
+      await applyEmergencyNotificationChannel(prefs);
+    },
+    [
+      applyEmergencyNotificationChannel,
+      notificationLockScreen,
+      notificationPopOnScreen,
+      notificationSoundChoice,
+      notificationSoundEnabled,
+      notificationVibration,
+    ],
+  );
+
+  const requestEmergencyNotificationPermission = async () => {
+    const result = await Notifications.requestPermissionsAsync();
+    await refreshNotificationPermissionLabel();
+
+    if (!result.granted && result.status !== "granted") {
+      Alert.alert(
+        "Notifications blocked",
+        "Open phone settings and allow Alertara notifications so emergency alerts can show banners, sounds, vibration, and lock-screen alerts.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open Settings", onPress: () => void openEmergencyNotificationChannelSettings() },
+        ],
+      );
+      return;
+    }
+
+    Alert.alert("Notifications enabled", "Emergency alerts are ready on this device.");
+  };
+
+  const openEmergencyNotificationChannelSettings = async () => {
+    if (Platform.OS === "android") {
+      try {
+        await IntentLauncher.startActivityAsync("android.settings.CHANNEL_NOTIFICATION_SETTINGS", {
+          extra: {
+            "android.provider.extra.APP_PACKAGE": "com.alertara.mobile",
+            "android.provider.extra.CHANNEL_ID": notificationChannelForSound(notificationSoundChoice),
+          },
+        });
+        return;
+      } catch {
+        await Linking.openSettings();
+        return;
+      }
+    }
+    await Linking.openSettings();
+  };
+
+  const notificationSoundDisplay = notificationSoundEnabled
+    ? notificationSoundChoice === "silent"
+      ? "Silent"
+      : "Alertara Emergency Sound"
+    : "Silent";
+
+  const openEmergencyNotificationSettings = () => {
+    Alert.alert(
+      "Emergency alert settings",
+      "For custom sounds, pop-on-screen banners, lock-screen visibility, and vibration, use the phone notification settings for the Emergency Alerts channel. Android controls custom sounds from the system channel settings.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open Settings", onPress: () => void openEmergencyNotificationChannelSettings() },
+      ],
+    );
+  };
+
+
+  useEffect(() => {
+    loadEmergencyNotificationSettings();
+  }, [loadEmergencyNotificationSettings]);
 
   useEffect(() => {
     // If the route param changes, allow auto-scroll again.
@@ -424,8 +633,9 @@ export default function MeScreen() {
           <SettingsMenuItem
             label="Alert Categories"
             icon="list.bullet"
-            onPress={() => setAlertCategoriesExpanded(!alertCategoriesExpanded)}
+            onPress={() => { animateSettingsDropdown(); setAlertCategoriesExpanded(!alertCategoriesExpanded); }}
             showChevron={true}
+            expanded={alertCategoriesExpanded}
           />
           
           {alertCategoriesExpanded && (
@@ -469,6 +679,16 @@ export default function MeScreen() {
               />
               <SettingsDivider />
               <SettingsToggle
+                label="Earthquake Alerts"
+                description="PHIVOLCS earthquake bulletins and seismic advisories"
+                value={alertPreferences.seismic}
+                onValueChange={(value) =>
+                  updateAlertPreferences({ seismic: value })
+                }
+                icon="waveform.path.ecg"
+              />
+              <SettingsDivider />
+              <SettingsToggle
                 label="Traffic Alerts"
                 description="Traffic updates and road closures"
                 value={alertPreferences.traffic}
@@ -495,8 +715,9 @@ export default function MeScreen() {
           <SettingsMenuItem
             label="Notification Channels"
             icon="antenna.radiowaves.left.and.right"
-            onPress={() => setNotificationChannelsExpanded(!notificationChannelsExpanded)}
+            onPress={() => { animateSettingsDropdown(); setNotificationChannelsExpanded(!notificationChannelsExpanded); }}
             showChevron={true}
+            expanded={notificationChannelsExpanded}
           />
           
           {notificationChannelsExpanded && (
@@ -526,6 +747,78 @@ export default function MeScreen() {
               />
             </>
           )}
+
+          <SettingsDivider />
+          <SettingsSelect
+            label="Notification Language"
+            description="Choose the language used for emergency alerts"
+            value={notificationLanguage}
+            icon="globe"
+            options={[
+              { label: "English", value: "en" },
+              { label: "Filipino", value: "tl" },
+              { label: "Both", value: "both" },
+            ]}
+            onSelect={handleNotificationLanguageSelect}
+          />
+          <SettingsDivider />
+          <SettingsMenuItem
+            label="Notification Permission"
+            value={notificationPermissionLabel}
+            icon="bell"
+            onPress={requestEmergencyNotificationPermission}
+          />
+          <SettingsDivider />
+          <SettingsToggle
+            label="Sound"
+            description="Play a sound when an emergency alert arrives"
+            value={notificationSoundEnabled}
+            onValueChange={(value) =>
+              saveEmergencyNotificationSettings({
+                soundEnabled: value,
+                soundChoice: value ? "default" : "silent",
+              })
+            }
+            icon="bell.fill"
+          />
+          <SettingsDivider />
+          <SettingsToggle
+            label="Pop on Screen / Banner"
+            description="Use high-priority alert banners for emergency notifications"
+            value={notificationPopOnScreen}
+            onValueChange={(value) => saveEmergencyNotificationSettings({ popOnScreen: value })}
+            icon="exclamationmark.triangle"
+          />
+          <SettingsDivider />
+          <SettingsToggle
+            label="Lock Screen"
+            description="Allow emergency alerts to appear on the lock screen"
+            value={notificationLockScreen}
+            onValueChange={(value) => saveEmergencyNotificationSettings({ lockScreen: value })}
+            icon="lock"
+          />
+          <SettingsDivider />
+          <SettingsToggle
+            label="Vibration"
+            description="Vibrate when high-priority alerts arrive"
+            value={notificationVibration}
+            onValueChange={(value) => saveEmergencyNotificationSettings({ vibration: value })}
+            icon="phone"
+          />
+          <SettingsDivider />
+          <SettingsMenuItem
+            label="Alert Sound"
+            value={notificationSoundDisplay}
+            icon="bell"
+            onPress={openEmergencyNotificationSettings}
+          />
+          <SettingsDivider />
+          <SettingsMenuItem
+            label="In-App Sound"
+            value="Preview app action tone"
+            icon="speaker.wave.2"
+            onPress={() => playAlertaraActionSound("reportSend")}
+          />
         </SettingsSection>
 
         {/* Preferences */}
@@ -547,12 +840,7 @@ export default function MeScreen() {
               icon="globe"
               options={[
                 { label: languageLabels.en, value: "en" },
-                { label: languageLabels.es, value: "es" },
-                { label: languageLabels.fr, value: "fr" },
                 { label: languageLabels.tl, value: "tl" },
-                { label: languageLabels.ceb, value: "ceb" },
-                { label: languageLabels.war, value: "war" },
-                { label: languageLabels.hil, value: "hil" },
               ]}
               onSelect={handleLanguageSelect}
             />
@@ -899,19 +1187,19 @@ export default function MeScreen() {
                   <ThemedText style={styles.policySubheading}>
                     1. Information We Collect
                   </ThemedText>
-                  {"\n"}• Personal identification information (name, email,
+                  {"\n"}Ã¢â‚¬Â¢ Personal identification information (name, email,
                   phone number)
-                  {"\n"}• Location data when you use crime mapping features
-                  {"\n"}• Device information (device type, operating system)
-                  {"\n"}• Usage data and analytics
+                  {"\n"}Ã¢â‚¬Â¢ Location data when you use crime mapping features
+                  {"\n"}Ã¢â‚¬Â¢ Device information (device type, operating system)
+                  {"\n"}Ã¢â‚¬Â¢ Usage data and analytics
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
                     2. How We Use Your Information
                   </ThemedText>
-                  {"\n"}• To provide and improve our services
-                  {"\n"}• To send notifications and alerts
-                  {"\n"}• To enhance user experience
-                  {"\n"}• For analytics and research
+                  {"\n"}Ã¢â‚¬Â¢ To provide and improve our services
+                  {"\n"}Ã¢â‚¬Â¢ To send notifications and alerts
+                  {"\n"}Ã¢â‚¬Â¢ To enhance user experience
+                  {"\n"}Ã¢â‚¬Â¢ For analytics and research
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
                     3. Data Security
@@ -948,10 +1236,10 @@ export default function MeScreen() {
                   <ThemedText style={styles.policySubheading}>
                     2. User Responsibilities
                   </ThemedText>
-                  {"\n"}• You must provide accurate information
-                  {"\n"}• You are responsible for your account security
-                  {"\n"}• You agree not to use the app for illegal activities
-                  {"\n"}• You will not submit false crime reports
+                  {"\n"}Ã¢â‚¬Â¢ You must provide accurate information
+                  {"\n"}Ã¢â‚¬Â¢ You are responsible for your account security
+                  {"\n"}Ã¢â‚¬Â¢ You agree not to use the app for illegal activities
+                  {"\n"}Ã¢â‚¬Â¢ You will not submit false crime reports
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
                     3. Disclaimer
@@ -1306,3 +1594,14 @@ const styles = StyleSheet.create({
     color: "#666",
   },
 });
+
+
+
+
+
+
+
+
+
+
+

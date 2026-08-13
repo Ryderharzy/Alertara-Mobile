@@ -1,5 +1,7 @@
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
+import { chatService } from "@/services/api/chat-service";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
 import { Colors, TealColors } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
@@ -11,12 +13,15 @@ import {
   getSystemAccent,
   isReportCompleted,
   loadConversationInbox,
+  markConversationThreadRead,
   resolveStatusColor,
   threadToChatParams,
+  CHAT_THREAD_PREFIX,
 } from "@/utils/conversation-inbox";
 import { useFocusEffect } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -50,6 +55,7 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const lastAdminMessageIdsRef = useRef<Record<string, number>>({});
 
   const background = isDarkMode
     ? Colors.dark.background
@@ -58,6 +64,91 @@ export default function MessagesScreen() {
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
   const mutedColor = isDarkMode ? "#94a3b8" : "#64748b";
   const borderColor = isDarkMode ? "#24333b" : "#e1e7ec";
+
+  const syncThreadServerMessages = useCallback(
+    async (items: ConversationThread[]) => {
+      const nextItems = [...items];
+      let shouldPlayMessageSound = false;
+
+      await Promise.all(
+        nextItems.map(async (thread, index) => {
+          const storedConversationId = thread.conversationId
+            ? String(thread.conversationId)
+            : await AsyncStorage.getItem(`conversation-${thread.id}`);
+          const conversationId = Number(storedConversationId || 0);
+
+          if (!conversationId) return;
+
+          try {
+            const apiMessages = await chatService.getMessages(
+              conversationId,
+              userProfile?.id,
+            );
+
+            if (!apiMessages.length) return;
+
+            const localMessages = apiMessages.map((msg) => ({
+              id: String(msg.message_id),
+              from:
+                msg.sender_type === "admin"
+                  ? ("bot" as const)
+                  : ("user" as const),
+              text: msg.message_text,
+              sentAt: new Date(msg.created_at).getTime(),
+              attachmentUrl: msg.attachment_url,
+              attachmentType: msg.attachment_mime,
+            }));
+            const last = localMessages[localMessages.length - 1];
+            const lastAdminMessage = [...apiMessages]
+              .reverse()
+              .find((msg) => msg.sender_type === "admin");
+            const lastAdminMessageId = Number(lastAdminMessage?.message_id || 0);
+            const previousAdminMessageId =
+              lastAdminMessageIdsRef.current[thread.id] || 0;
+
+            if (
+              lastAdminMessageId &&
+              previousAdminMessageId &&
+              lastAdminMessageId > previousAdminMessageId
+            ) {
+              shouldPlayMessageSound = true;
+            }
+
+            if (lastAdminMessageId) {
+              lastAdminMessageIdsRef.current[thread.id] = lastAdminMessageId;
+            }
+
+            await AsyncStorage.setItem(
+              `${CHAT_THREAD_PREFIX}${thread.id}`,
+              JSON.stringify(localMessages.slice(-50)),
+            );
+
+            nextItems[index] = {
+              ...thread,
+              conversationId,
+              lastMessage: last.text,
+              lastMessageFrom: last.from,
+              updatedAt: new Date(last.sentAt).toISOString(),
+              unreadCount:
+                last.from === "bot" ? Math.max(thread.unreadCount ?? 0, 1) : 0,
+            };
+          } catch {
+            // Keep the cached thread preview if the live message endpoint is unavailable.
+          }
+        }),
+      );
+
+      if (shouldPlayMessageSound) {
+        void playAlertaraActionSound("reportSend");
+      }
+
+      return nextItems.sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+    },
+    [userProfile?.id],
+  );
 
   const load = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -68,7 +159,8 @@ export default function MessagesScreen() {
         const items = await loadConversationInbox({
           userId: userProfile?.id,
         });
-        setThreads(items);
+        const syncedItems = await syncThreadServerMessages(items);
+        setThreads(syncedItems);
       } catch {
         setThreads([]);
       } finally {
@@ -77,7 +169,7 @@ export default function MessagesScreen() {
         }
       }
     },
-    [userProfile?.id],
+    [syncThreadServerMessages, userProfile?.id],
   );
 
   const handleRefresh = useCallback(async () => {
@@ -92,11 +184,18 @@ export default function MessagesScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-      return () => {};
+      const timer = setInterval(() => void load({ silent: true }), 4000);
+      return () => clearInterval(timer);
     }, [load]),
   );
 
   const openChat = (thread: ConversationThread) => {
+    void markConversationThreadRead(thread.id);
+    setThreads((current) =>
+      current.map((item) =>
+        item.id === thread.id ? { ...item, unreadCount: 0 } : item,
+      ),
+    );
     router.push({
       pathname: "/chat/[id]",
       params: threadToChatParams(thread),
@@ -253,9 +352,7 @@ export default function MessagesScreen() {
               colors={[TealColors.primary]}
             />
           }
-          ItemSeparatorComponent={() => (
-            <View style={[styles.separator, { backgroundColor: borderColor }]} />
-          )}
+          ItemSeparatorComponent={() => null}
           renderItem={({ item }) => {
             const accent = getSystemAccent(item.systemId);
             const statusColor = resolveStatusColor(item.status);
@@ -274,6 +371,9 @@ export default function MessagesScreen() {
                         ? "#1f2d34"
                         : "#f8fafc"
                       : cardBg,
+                    borderColor: item.unreadCount
+                      ? TealColors.primary
+                      : borderColor,
                   },
                 ]}
                 onPress={() => openChat(item)}
@@ -295,6 +395,11 @@ export default function MessagesScreen() {
                     >
                       {item.title}
                     </ThemedText>
+                    {item.unreadCount ? (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+                      </View>
+                    ) : null}
                     <Text style={[styles.rowTime, { color: mutedColor }]}>
                       {formatRelativeTime(item.updatedAt)}
                     </Text>
@@ -544,6 +649,23 @@ const styles = StyleSheet.create({
   preview: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  unreadPreview: {
+    fontWeight: "700",
+  },
+  unreadBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ef4444",
+  },
+  unreadBadgeText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800",
   },
   empty: {
     flex: 1,

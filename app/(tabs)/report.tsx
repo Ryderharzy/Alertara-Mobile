@@ -12,6 +12,7 @@ import {
     mapIncidentTypeToReportType,
 } from "@/services/api/emergency-report-service";
 import { mediaUploadService } from "@/services/api/media-upload-service";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
 import {
   getQCBoundaryCoordinates,
   isCoordinateInsideQCBoundary,
@@ -142,6 +143,7 @@ export default function ReportScreen() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedMediaUrl, setUploadedMediaUrl] = useState<string | null>(null);
   const [showReportForm, setShowReportForm] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
   const [reportThreads, setReportThreads] = useState<ConversationThread[]>([]);
   const [inboxLoading, setInboxLoading] = useState(true);
   const [inboxRefreshing, setInboxRefreshing] = useState(false);
@@ -168,13 +170,7 @@ export default function ReportScreen() {
     if (!silent) setInboxLoading(true);
     try {
       const threads = await loadConversationInbox({ userId: userProfile?.id });
-      setReportThreads(
-        threads.filter((thread) =>
-          thread.id.startsWith("report-") ||
-          thread.id.startsWith("pending-") ||
-          thread.id.startsWith("incident-"),
-        ),
-      );
+      setReportThreads(threads);
     } finally {
       if (!silent) setInboxLoading(false);
     }
@@ -185,6 +181,25 @@ export default function ReportScreen() {
       pathname: "/chat/[id]",
       params: threadToChatParams(thread),
     } as never);
+  };
+
+  const openGeneralChat = () => {
+    setNewChatOpen(false);
+    router.push({
+      pathname: "/chat/[id]",
+      params: {
+        id: "general",
+        title: encodeURIComponent("General Support"),
+        category: "General",
+        status: "Active",
+        icon: "robot",
+      },
+    } as never);
+  };
+
+  const openNewReport = () => {
+    setNewChatOpen(false);
+    setShowReportForm(true);
   };
 
   const confirmDeleteReport = (thread: ConversationThread) => {
@@ -301,7 +316,7 @@ export default function ReportScreen() {
   const handlePreset = (preset: (typeof quickPresets)[number]) => {
     setSelectedType(preset.type);
     setSeverity(preset.severity as "Low" | "Medium" | "High");
-    setSummary(`${preset.label} – ${t("status.pending")}`);
+    setSummary(`${preset.label} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ ${t("status.pending")}`);
     setDetails(t("report.quickNote"));
   };
 
@@ -681,6 +696,7 @@ export default function ReportScreen() {
         String(report.conversation_id),
       );
 
+      void playAlertaraActionSound("reportSend");
       await finalizeSuccessfulReport({
         threadId: reportThreadId,
         icon,
@@ -709,6 +725,7 @@ export default function ReportScreen() {
             error instanceof Error ? error.message : t("report.confirmationFail"),
         });
 
+        void playAlertaraActionSound("reportSend");
         await queuedReportToInboxThread(queued);
         await refreshPendingCount();
         await openPendingReportChat(
@@ -804,10 +821,10 @@ export default function ReportScreen() {
         <View style={[styles.reportsHeader, { paddingTop: insets.top + 12 }]}>
           <View>
             <ThemedText type="title" style={[styles.reportsTitle, { color: textColor }]}>
-              Reports
+              Messages
             </ThemedText>
             <ThemedText style={[styles.reportsSubtitle, { color: mutedColor }]}>
-              Follow your emergency reports and response-team updates
+              Follow reports, messages, and response-team updates
             </ThemedText>
           </View>
         </View>
@@ -841,10 +858,10 @@ export default function ReportScreen() {
                   <IconSymbol name="bubble.left.and.bubble.right" size={34} color={accent} />
                 </View>
                 <ThemedText style={[styles.reportEmptyTitle, { color: textColor }]}>
-                  No reports yet
+                  No messages yet
                 </ThemedText>
                 <ThemedText style={[styles.reportEmptyText, { color: mutedColor }]}>
-                  New incident reports and response-team updates will appear here.
+                  Reports, inquiries, and response-team updates will appear here.
                 </ThemedText>
               </View>
             }
@@ -908,18 +925,69 @@ export default function ReportScreen() {
           />
         )}
 
+
+      
         <View style={[styles.newReportFabWrap, { bottom: tabBarHeight + 10 }]}>
-          <Text style={[styles.newReportFabLabel, { color: textColor, backgroundColor: cardBackground }]}>
-            New Report
-          </Text>
           <Pressable
             style={[styles.newReportFab, { backgroundColor: accent }]}
-            onPress={() => setShowReportForm(true)}
-            accessibilityLabel="New Report"
+            onPress={() => setNewChatOpen(true)}
+            accessibilityLabel="Create message or report"
           >
             <IconSymbol name="plus" size={28} color="#fff" />
           </Pressable>
         </View>
+
+        <Modal
+          visible={newChatOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setNewChatOpen(false)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setNewChatOpen(false)}
+          >
+            <Pressable
+              style={[
+                styles.modalSheet,
+                { backgroundColor: cardBackground, borderColor },
+              ]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <ThemedText style={[styles.modalTitle, { color: textColor }]}>New conversation</ThemedText>
+
+              <Pressable
+                style={[styles.modalOption, { borderColor }]}
+                onPress={openGeneralChat}
+              >
+                <View style={[styles.modalIcon, { backgroundColor: `${getSystemAccent("general")}20` }]}>
+                  <IconSymbol name="robot" size={18} color={getSystemAccent("general")} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.modalOptionTitle, { color: textColor }]}>General inquiry</ThemedText>
+                  <ThemedText style={[styles.modalOptionDesc, { color: mutedColor }]}>Ask questions and get safety guidance</ThemedText>
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={[styles.modalOption, { borderColor }]}
+                onPress={openNewReport}
+              >
+                <View style={[styles.modalIcon, { backgroundColor: `${getSystemAccent("ecs")}20` }]}>
+                  <IconSymbol name="exclamationmark.triangle" size={18} color={getSystemAccent("ecs")} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.modalOptionTitle, { color: textColor }]}>Report an incident</ThemedText>
+                  <ThemedText style={[styles.modalOptionDesc, { color: mutedColor }]}>Submit a report and open a follow-up thread</ThemedText>
+                </View>
+              </Pressable>
+
+              <Pressable style={styles.modalCancel} onPress={() => setNewChatOpen(false)}>
+                <Text style={{ color: TealColors.primary, fontWeight: "800" }}>Cancel</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -1627,7 +1695,7 @@ export default function ReportScreen() {
                   }}
                 >
                   <Text style={styles.successPrimaryButtonText}>
-                    Back to Reports
+                    Back to Messages
                   </Text>
                 </Pressable>
                 {lastIncidentChat && (
@@ -2101,6 +2169,46 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    paddingBottom: 32,
+    gap: 10,
+  },
+  modalOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+  },
+  modalIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalOptionTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modalOptionDesc: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalCancel: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
   stepButton: {
     minHeight: 48,
     borderRadius: 14,
@@ -2573,3 +2681,5 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+

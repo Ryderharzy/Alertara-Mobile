@@ -1,14 +1,16 @@
-import { useAuth } from "@/context/auth-context";
+﻿import { useAuth } from "@/context/auth-context";
 import { userPreferenceService } from "@/services/api/user-preference-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-export type LanguageOption = "en" | "es" | "fr" | "tl" | "ceb" | "war" | "hil";
+export type LanguageOption = "en" | "tl";
+export type NotificationLanguageOption = "en" | "tl" | "both";
 export type AlertPreference = "all" | "critical" | "none";
 
 type PreferencesContextType = {
   isLoading: boolean;
   language: LanguageOption;
+  notificationLanguage: NotificationLanguageOption;
   alertPreferences: {
     crimes: boolean;
     emergencies: boolean;
@@ -16,6 +18,7 @@ type PreferencesContextType = {
     weather: boolean;
     traffic: boolean;
     health: boolean;
+    seismic: boolean;
     email: boolean;
     sms: boolean;
     push: boolean;
@@ -27,6 +30,7 @@ type PreferencesContextType = {
     lastReport?: string;
   };
   setLanguage: (lang: LanguageOption) => Promise<void>;
+  setNotificationLanguage: (lang: NotificationLanguageOption) => Promise<void>;
   updateAlertPreferences: (
     prefs: Partial<PreferencesContextType["alertPreferences"]>,
   ) => Promise<void>;
@@ -47,6 +51,7 @@ export const PreferencesProvider = ({
   const { userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [language, setLanguageState] = useState<LanguageOption>("en");
+  const [notificationLanguage, setNotificationLanguageState] = useState<NotificationLanguageOption>("en");
   const [alertPreferences, setAlertPreferencesState] = useState({
     crimes: true,
     emergencies: true,
@@ -54,6 +59,7 @@ export const PreferencesProvider = ({
     weather: true,
     traffic: true,
     health: true,
+    seismic: true,
     email: false,
     sms: false,
     push: true,
@@ -66,15 +72,40 @@ export const PreferencesProvider = ({
   useEffect(() => {
     const loadPreferences = async () => {
       try {
-        const [lang, alerts, history] = await Promise.all([
+        const [lang, notificationLang, alerts, history] = await Promise.all([
           AsyncStorage.getItem("language"),
+          AsyncStorage.getItem("notificationLanguage"),
           AsyncStorage.getItem("alertPreferences"),
           AsyncStorage.getItem("incidentHistory"),
         ]);
 
-        if (lang) setLanguageState(lang as LanguageOption);
+        if (lang === "en" || lang === "tl") {
+          setLanguageState(lang);
+        } else if (lang) {
+          await AsyncStorage.setItem("language", "en");
+          setLanguageState("en");
+        }
+        if (notificationLang === "en" || notificationLang === "tl" || notificationLang === "both") {
+          setNotificationLanguageState(notificationLang);
+        } else if (notificationLang) {
+          await AsyncStorage.setItem("notificationLanguage", "en");
+          setNotificationLanguageState("en");
+        }
         if (alerts) setAlertPreferencesState(JSON.parse(alerts));
         if (history) setIncidentHistoryState(JSON.parse(history));
+
+        if (userProfile?.id) {
+          try {
+            const response = await userPreferenceService.getPreferences(userProfile.id);
+            const remoteNotificationLang = response?.data?.notification_language;
+            if (remoteNotificationLang === "en" || remoteNotificationLang === "tl" || remoteNotificationLang === "both") {
+              setNotificationLanguageState(remoteNotificationLang);
+              await AsyncStorage.setItem("notificationLanguage", remoteNotificationLang);
+            }
+          } catch (backendError) {
+            console.error("Failed to load notification language from backend:", backendError);
+          }
+        }
       } catch (e) {
         console.error("Failed to load preferences:", e);
       } finally {
@@ -83,11 +114,12 @@ export const PreferencesProvider = ({
     };
 
     loadPreferences();
-  }, []);
+  }, [userProfile?.id]);
 
   const preferencesContext: PreferencesContextType = {
     isLoading,
     language,
+    notificationLanguage,
     alertPreferences,
     incidentHistory,
     setLanguage: async (lang: LanguageOption) => {
@@ -101,6 +133,7 @@ export const PreferencesProvider = ({
             await userPreferenceService.savePreferences({
               user_id: userProfile.id,
               preferred_language: lang,
+              notification_language: notificationLanguage,
               sms_notifications: alertPreferences.sms,
               email_notifications: alertPreferences.email,
               push_notifications: alertPreferences.push,
@@ -111,6 +144,7 @@ export const PreferencesProvider = ({
                 weather: alertPreferences.weather,
                 traffic: alertPreferences.traffic,
                 health: alertPreferences.health,
+                seismic: alertPreferences.seismic,
               }),
             });
           } catch (backendError) {
@@ -120,6 +154,39 @@ export const PreferencesProvider = ({
         }
       } catch (error) {
         console.error("Failed to set language:", error);
+        throw error;
+      }
+    },
+    setNotificationLanguage: async (lang: NotificationLanguageOption) => {
+      try {
+        setNotificationLanguageState(lang);
+        await AsyncStorage.setItem("notificationLanguage", lang);
+
+        if (userProfile?.id) {
+          try {
+            await userPreferenceService.savePreferences({
+              user_id: userProfile.id,
+              preferred_language: language,
+              notification_language: lang,
+              sms_notifications: alertPreferences.sms,
+              email_notifications: alertPreferences.email,
+              push_notifications: alertPreferences.push,
+              alert_categories: JSON.stringify({
+                crimes: alertPreferences.crimes,
+                emergencies: alertPreferences.emergencies,
+                community: alertPreferences.communityAlerts,
+                weather: alertPreferences.weather,
+                traffic: alertPreferences.traffic,
+                health: alertPreferences.health,
+                seismic: alertPreferences.seismic,
+              }),
+            });
+          } catch (backendError) {
+            console.error("Failed to sync notification language to backend:", backendError);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to set notification language:", error);
         throw error;
       }
     },
@@ -137,6 +204,7 @@ export const PreferencesProvider = ({
             await userPreferenceService.savePreferences({
               user_id: userProfile.id,
               preferred_language: language,
+              notification_language: notificationLanguage,
               sms_notifications: updated.sms,
               email_notifications: updated.email,
               push_notifications: updated.push,
@@ -147,6 +215,7 @@ export const PreferencesProvider = ({
                 weather: updated.weather,
                 traffic: updated.traffic,
                 health: updated.health,
+                seismic: updated.seismic,
               }),
             });
           } catch (backendError) {
@@ -187,3 +256,6 @@ export const usePreferences = () => {
   }
   return context;
 };
+
+
+

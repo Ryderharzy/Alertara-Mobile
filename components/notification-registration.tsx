@@ -1,3 +1,4 @@
+import { EMERGENCY_ALERT_CHANNEL_ID, LEGACY_EMERGENCY_ALERT_CHANNEL_IDS, NOTIFICATION_CHANNELS, notificationChannelForSound } from '@/constants/notification-channels';
 import { useAuth } from '@/context/auth-context';
 import { deviceService } from '@/services/api/device-service';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,8 +9,11 @@ import * as Notifications from 'expo-notifications';
 import { useCallback, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
+const NOTIFICATION_PREF_SOUND_CHOICE = 'alertara.notification.soundChoice';
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
+    shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
@@ -25,6 +29,46 @@ async function getStableDeviceId() {
   return created;
 }
 
+async function ensureEmergencyNotificationChannels() {
+  if (Platform.OS !== 'android') return;
+
+  const channelConfig = {
+    name: 'Emergency Alerts',
+    description: 'Critical Alertara alerts with banner, sound, vibration, and lock-screen visibility.',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 650, 180, 650, 180, 900],
+    sound: 'alertara_emergency.wav',
+    enableVibrate: true,
+    enableLights: true,
+    lightColor: '#023c69',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    showBadge: true,
+    bypassDnd: false,
+    audioAttributes: {
+      usage: Notifications.AndroidAudioUsage.NOTIFICATION,
+      contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+      flags: { enforceAudibility: false, requestHardwareAudioVideoSynchronization: false },
+    },
+  };
+
+  await Notifications.setNotificationChannelAsync(EMERGENCY_ALERT_CHANNEL_ID, channelConfig);
+  await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNELS.silent, {
+    ...channelConfig,
+    name: 'Emergency Alerts - Silent',
+    description: 'Alertara emergency alerts without sound. Banners and vibration still follow phone settings.',
+    sound: null,
+  });
+
+  for (const channelId of LEGACY_EMERGENCY_ALERT_CHANNEL_IDS) {
+    await Notifications.setNotificationChannelAsync(channelId, {
+      ...channelConfig,
+      name: channelId === 'alertara_critical_alerts_v2'
+        ? 'Critical emergency alerts'
+        : 'Emergency Alerts - Urgent',
+      description: 'Legacy Alertara emergency alert channel.',
+    });
+  }
+}
 export function NotificationRegistration() {
   const { userProfile } = useAuth();
   const registeringRef = useRef(false);
@@ -37,43 +81,7 @@ export function NotificationRegistration() {
 
     registeringRef.current = true;
     try {
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('alertara_emergency_alerts_v2', {
-          name: 'Emergency alerts',
-          description: 'Alertara public safety and emergency notifications',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 300, 180, 300],
-          sound: 'default',
-          enableVibrate: true,
-          enableLights: true,
-          lightColor: '#ef4444',
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          showBadge: true,
-          audioAttributes: {
-            usage: Notifications.AndroidAudioUsage.ALARM,
-            contentType: Notifications.AndroidAudioContentType.SONIFICATION,
-            flags: { enforceAudibility: true, requestHardwareAudioVideoSynchronization: false },
-          },
-        });
-        await Notifications.setNotificationChannelAsync('alertara_critical_alerts_v2', {
-          name: 'Critical emergency alerts',
-          description: 'Urgent Alertara warnings requiring immediate attention',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 650, 180, 650, 180, 900],
-          sound: 'default',
-          enableVibrate: true,
-          enableLights: true,
-          lightColor: '#dc2626',
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          showBadge: true,
-          bypassDnd: true,
-          audioAttributes: {
-            usage: Notifications.AndroidAudioUsage.ALARM,
-            contentType: Notifications.AndroidAudioContentType.SONIFICATION,
-            flags: { enforceAudibility: true, requestHardwareAudioVideoSynchronization: false },
-          },
-        });
-      }
+      await ensureEmergencyNotificationChannels();
 
       let permission = await Notifications.getPermissionsAsync();
       if (permission.status !== 'granted') permission = await Notifications.requestPermissionsAsync();
@@ -82,8 +90,18 @@ export function NotificationRegistration() {
       const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
       if (!projectId) throw new Error('EAS project ID is unavailable.');
       const pushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      const nativeToken = await Notifications.getDevicePushTokenAsync();
+      const fcmToken = typeof nativeToken.data === 'string'
+        ? nativeToken.data
+        : JSON.stringify(nativeToken.data);
+      console.log('[Alertara][FCM] Expo push token:', pushToken);
+      console.log('[Alertara][FCM] Native FCM token:', fcmToken);
       const deviceId = await getStableDeviceId();
-      const registrationKey = `${userProfile?.id || 'guest'}:${pushToken}`;
+      const soundChoice = await AsyncStorage.getItem(NOTIFICATION_PREF_SOUND_CHOICE);
+      const notificationChannel = notificationChannelForSound(soundChoice);
+      await AsyncStorage.setItem('alertara-fcm-token', fcmToken);
+      await AsyncStorage.setItem('alertara-expo-push-token', pushToken);
+      const registrationKey = `${userProfile?.id || 'guest'}:${pushToken}:${fcmToken}`;
       if (registeredKeyRef.current === registrationKey) return;
 
       await deviceService.registerDevice({
@@ -92,8 +110,11 @@ export function NotificationRegistration() {
         device_type: Platform.OS,
         device_name: Device.deviceName || `${Platform.OS} device`,
         push_token: pushToken,
+        fcm_token: fcmToken,
         token_type: 'expo',
         notification_permission: 'granted',
+        notification_channel: notificationChannel,
+        notification_sound: soundChoice === 'silent' ? 'silent' : 'emergency',
       });
       registeredKeyRef.current = registrationKey;
     } catch (error) {
@@ -113,3 +134,9 @@ export function NotificationRegistration() {
 
   return null;
 }
+
+
+
+
+
+

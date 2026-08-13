@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1042179768363",
+    "project_id": "emergency-communication-bcc45",
+    "storage_bucket": "emergency-communication-bcc45.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1042179768363:android:bf67f4da8b2f6282d52a6e",
+        "android_client_info": {
+          "package_name": "com.alertara.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyChr3jAOWIIzvRqTC4VFp_8ec0xJVmRfc8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -64,9 +64,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="report"
         options={{
-          title: t("nav.report"),
+          title: t("nav.messages", "Messages"),
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="exclamationmark.triangle" color={color} />
+            <IconSymbol size={28} name="bubble.left.and.bubble.right" color={color} />
           ),
         }}
       />
@@ -97,3 +97,4 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+

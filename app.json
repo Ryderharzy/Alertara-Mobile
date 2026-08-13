@@ -31,8 +31,11 @@
         "CAMERA",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
-      ]
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -59,8 +62,9 @@
         "expo-notifications",
         {
           "icon": "./assets/images/android-icon-monochrome.png",
-          "color": "#dc2626",
-          "defaultChannel": "alertara_emergency_alerts_v2"
+          "color": "#023c69",
+          "defaultChannel": "alertara-emergency-default-v5",
+          "sounds": ["./assets/sounds/alertara_emergency.wav"]
         }
       ]
     ],

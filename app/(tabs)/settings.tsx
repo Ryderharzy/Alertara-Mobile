@@ -16,12 +16,7 @@ export default function SettingsScreen() {
 
   const languageOptions = [
     { label: "English", value: "en" },
-    { label: "Filipino (Tagalog)", value: "tl" },
-    { label: "Cebuano (Bisaya)", value: "ceb" },
-    { label: "Waray", value: "war" },
-    { label: "Hiligaynon (Ilonggo)", value: "hil" },
-    { label: "Español", value: "es" },
-    { label: "Français", value: "fr" },
+    { label: "Tagalog", value: "tl" },
   ];
 
   const handleLanguageChange = async (newLanguage: string) => {

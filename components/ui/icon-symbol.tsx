@@ -37,6 +37,7 @@ const MAPPING = {
   chatbubble: "chatbubble",
   moon: "moon",
   thermometer: "thermometer-outline",
+  leaf: "leaf-outline",
   "cloud.rain": "rainy-outline",
   drop: "water-outline",
   sun: "sunny",

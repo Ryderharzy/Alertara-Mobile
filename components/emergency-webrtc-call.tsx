@@ -23,6 +23,7 @@ import {
   RTCView,
 } from 'react-native-webrtc';
 import InCallManager from 'react-native-incall-manager';
+import { playAlertaraActionSound } from '@/services/sound/action-sounds';
 import { io, Socket } from 'socket.io-client';
 
 const SIGNALING_URL = (process.env.EXPO_PUBLIC_SOCKET_URL || 'https://emergency-comm.alertaraqc.com').replace(/\/$/, '');
@@ -305,6 +306,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
 
   const endCall = useCallback(async (notifyAdmin = true) => {
     if (endingRef.current) return;
+    void playAlertaraActionSound('callEnd');
     endingRef.current = true;
     const callId = callIdRef.current;
     const room = roomRef.current;
@@ -837,6 +839,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       localStreamRef.current = localStream;
       localStream.getAudioTracks().forEach((track) => { track.enabled = true; });
       startCallAudio();
+      void playAlertaraActionSound('callStart');
       InCallManager.setMicrophoneMute(false);
 
       const callId = createCallId();
@@ -1124,3 +1127,5 @@ const styles = StyleSheet.create({
   input: { flex: 1, minHeight: 44, borderRadius: 13, backgroundColor: '#132f2b', color: '#fff', paddingHorizontal: 13 },
   sendButton: { minWidth: 66, borderRadius: 13, backgroundColor: '#248f84', alignItems: 'center', justifyContent: 'center' },
 });
+
+

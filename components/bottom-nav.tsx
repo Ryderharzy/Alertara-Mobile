@@ -86,7 +86,7 @@ export function BottomNav({
               : route.name === "messages"
                 ? t("nav.messages", "Messages")
                 : route.name === "report"
-                  ? t("nav.report", "Report")
+                  ? t("nav.messages", "Messages")
                   : route.name === "me"
                     ? t("nav.profile", "Profile")
                     : route.name === "call"
@@ -122,8 +122,8 @@ export function BottomNav({
               : "house"
             : route.name === "report"
               ? isFocused
-                ? "exclamationmark.triangle.fill"
-                : "exclamationmark.triangle"
+                ? "bubble.left.and.bubble.right.fill"
+                : "bubble.left.and.bubble.right"
               : route.name === "map"
                 ? isFocused
                   ? "map.fill"
@@ -139,7 +139,7 @@ export function BottomNav({
                     : "circle";
 
         // add extra inner padding to tabs adjacent to the call button so they don't
-        // overlap with the central floating call circle — use padding instead of
+        // overlap with the central floating call circle â€” use padding instead of
         // margin so the icon stays centered within its tab
         const extraStyle = {} as any;
         if (route.name === "map") extraStyle.paddingRight = adjacentSpacing;
@@ -266,3 +266,6 @@ const styles = StyleSheet.create({
   },
   // styling for the legacy teal button is no longer used; handled inside EmergencyCallButton
 });
+
+
+

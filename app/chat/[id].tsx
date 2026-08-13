@@ -17,7 +17,8 @@ import {
   statusToTranslationKey,
 } from "@/services/api/emergency-report-service";
 import { mediaUploadService } from "@/services/api/media-upload-service";
-import { upsertConversationThread } from "@/utils/conversation-inbox";
+import { markConversationThreadRead, upsertConversationThread } from "@/utils/conversation-inbox";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from 'expo-image-picker';
@@ -125,6 +126,7 @@ export default function ChatScreen() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+  const lastSeenAdminMessageIdRef = useRef(0);
 
   const categoryLabel = category ? decodeURIComponent(category) : "General";
   const iconName = threadIcon || "robot";
@@ -146,6 +148,10 @@ export default function ChatScreen() {
       setStatusLabel(decodeURIComponent(rawStatus));
     }
   }, [rawStatus]);
+
+  useEffect(() => {
+    void markConversationThreadRead(threadId);
+  }, [threadId]);
 
   useEffect(() => {
     if (reportId === null) return;
@@ -241,6 +247,15 @@ export default function ChatScreen() {
       try {
         const apiMessages = await chatService.getMessages(conversationId, userProfile?.id);
         if (!active) return;
+        const latestAdminMessage = [...apiMessages]
+          .reverse()
+          .find((msg) => msg.sender_type === 'admin');
+        const latestAdminMessageId = Number(latestAdminMessage?.message_id || 0);
+        if (latestAdminMessageId && latestAdminMessageId > lastSeenAdminMessageIdRef.current) {
+          void playAlertaraActionSound("reportSend");
+          lastSeenAdminMessageIdRef.current = latestAdminMessageId;
+        }
+        await markConversationThreadRead(threadId);
         setMessages(apiMessages.map((msg: ApiChatMessage) => ({
           id: msg.message_id.toString(),
           from: msg.sender_type === 'admin' ? 'bot' : 'user',
@@ -260,7 +275,7 @@ export default function ChatScreen() {
       active = false;
       clearInterval(timer);
     };
-  }, [conversationId, isRealTimeChat, userProfile?.id]);
+  }, [conversationId, isRealTimeChat, threadId, userProfile?.id]);
 
   const promptChips = useMemo(() => {
     const key = (category ?? "General").toString();

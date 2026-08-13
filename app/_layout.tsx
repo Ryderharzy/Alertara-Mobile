@@ -8,6 +8,7 @@ import * as Network from "expo-network";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -87,6 +88,9 @@ function RootLayoutNav() {
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   connectionScreen: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10000,
@@ -106,16 +110,18 @@ const styles = StyleSheet.create({
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <CustomThemeProvider>
-        <AuthProvider>
-          <NotificationRegistration />
-          <EmergencyNotificationOverlay />
-          <PreferencesProvider>
-            <RootLayoutNav />
-          </PreferencesProvider>
-        </AuthProvider>
-      </CustomThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <SafeAreaProvider>
+        <CustomThemeProvider>
+          <AuthProvider>
+            <NotificationRegistration />
+            <EmergencyNotificationOverlay />
+            <PreferencesProvider>
+              <RootLayoutNav />
+            </PreferencesProvider>
+          </AuthProvider>
+        </CustomThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
