@@ -1370,7 +1370,13 @@ export default function NotificationScreen() {
                           : "#ffffff",
                     },
                   ]}
-                  onPress={() => router.back()}
+                  onPress={() => {
+                    if (router.canGoBack()) {
+                      router.back();
+                    } else {
+                      router.replace("/(tabs)");
+                    }
+                  }}
                 >
                   <IconSymbol
                     name="arrow.left"

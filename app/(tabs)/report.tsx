@@ -899,7 +899,7 @@ export default function ReportScreen() {
                     <View style={styles.reportMeta}>
                       <View style={[styles.reportStatus, { borderColor: statusColor, backgroundColor: `${statusColor}18` }]}>
                         <Text style={[styles.reportStatusText, { color: statusColor }]}>
-                          {item.status ?? "Pending"}
+                          {formatReportStatusLabel(item.status ?? "in_queue")}
                         </Text>
                       </View>
                       <Text style={[styles.reportSystem, { color: mutedColor }]}>

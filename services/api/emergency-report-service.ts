@@ -35,7 +35,9 @@ export interface EmergencyReportResponse {
 }
 
 export type IncidentStatus =
+  | 'in_queue'
   | 'pending'
+  | 'pending_status'
   | 'received'
   | 'dispatching'
   | 'ongoing_dispatch'
@@ -96,7 +98,7 @@ function parseReportRecord(
       source.longitude != null && source.longitude !== ''
         ? Number(source.longitude)
         : fallback?.longitude,
-    status: String(source.status ?? 'pending'),
+    status: String(source.status ?? 'in_queue'),
     media_url: source.media_url ?? undefined,
     admin_notes: source.admin_notes ?? undefined,
     created_at: String(source.created_at ?? new Date().toISOString()),
@@ -141,8 +143,17 @@ export function buildReportThreadId(reportId: number): string {
 }
 
 export function formatReportStatusLabel(status: string): string {
-  switch (status.toLowerCase().replace(/\s+/g, "_")) {
+  const normalized = status.toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "open":
+    case "queue":
+    case "queued":
+    case "in_queue":
     case "pending":
+      return "In Queue";
+    case "pending_status":
+    case "transferred":
+    case "ers_pending":
       return "Pending";
     case "received":
       return "Received";
@@ -164,7 +175,9 @@ export function formatReportStatusLabel(status: string): string {
 }
 
 export const INCIDENT_STATUS_OPTIONS: IncidentStatus[] = [
+  "in_queue",
   "pending",
+  "pending_status",
   "received",
   "dispatching",
   "ongoing_dispatch",
@@ -175,7 +188,13 @@ export const INCIDENT_STATUS_OPTIONS: IncidentStatus[] = [
 ];
 
 export function statusLabelToKey(label: string): IncidentStatus | null {
-  const normalized = label.toLowerCase().replace(/\s+/g, "_");
+  const normalized = label.toLowerCase().replace(/[\s-]+/g, "_");
+  if (["open", "queue", "queued"].includes(normalized)) {
+    return "in_queue";
+  }
+  if (["transferred", "ers_pending"].includes(normalized)) {
+    return "pending_status";
+  }
   return INCIDENT_STATUS_OPTIONS.includes(normalized as IncidentStatus)
     ? (normalized as IncidentStatus)
     : null;
@@ -192,7 +211,10 @@ export function parseReportIdFromThreadId(threadId: string): number | null {
 
 export function statusToTranslationKey(status: IncidentStatus): string {
   switch (status) {
+    case "in_queue":
+      return "status.inQueue";
     case "pending":
+    case "pending_status":
       return "status.pending";
     case "received":
       return "status.received";
@@ -210,7 +232,6 @@ export function statusToTranslationKey(status: IncidentStatus): string {
       return "status.rejected";
   }
 }
-
 export const emergencyReportService = {
   /**
    * Submit a new emergency report

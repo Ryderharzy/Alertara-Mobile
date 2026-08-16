@@ -66,7 +66,9 @@ const SYSTEM_ACCENTS: Record<ConversationSystemId, string> = {
 };
 
 export const statusColors: Record<IncidentStatus, string> = {
+  in_queue: "#14b8a6",
   pending: "#e3b341",
+  pending_status: "#e3b341",
   received: "#3b82f6",
   dispatching: "#f59e0b",
   ongoing_dispatch: "#8b5cf6",

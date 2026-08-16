@@ -28,7 +28,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -81,7 +83,9 @@ const STORAGE_PREFIX = "chat-thread-";
 const MAX_HISTORY = 50;
 
 const statusColors: Record<IncidentStatus, string> = {
+  in_queue: "#14b8a6",
   pending: "#e3b341",
+  pending_status: "#e3b341",
   received: "#3b82f6",
   dispatching: "#f59e0b",
   ongoing_dispatch: "#8b5cf6",
@@ -125,6 +129,7 @@ export default function ChatScreen() {
   const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [adminInChat, setAdminInChat] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const lastSeenAdminMessageIdRef = useRef(0);
 
@@ -203,6 +208,7 @@ export default function ChatScreen() {
           // Try to load messages to verify conversation is still open
           try {
             const apiMessages = await chatService.getMessages(convId, userProfile?.id);
+            setAdminInChat(apiMessages.some((msg) => msg.sender_type === 'admin'));
             
             // Convert API messages to local format
             const localMessages: LocalChatMessage[] = apiMessages.map((msg: ApiChatMessage) => ({
@@ -247,6 +253,7 @@ export default function ChatScreen() {
       try {
         const apiMessages = await chatService.getMessages(conversationId, userProfile?.id);
         if (!active) return;
+        setAdminInChat(apiMessages.some((msg) => msg.sender_type === 'admin'));
         const latestAdminMessage = [...apiMessages]
           .reverse()
           .find((msg) => msg.sender_type === 'admin');
@@ -287,7 +294,7 @@ export default function ChatScreen() {
   }, [messages]);
 
   const buildInitialMessage = () => {
-    const statusText = statusLabel ? `Current status: ${statusLabel}. ` : "";
+    const statusText = statusLabel ? `Current status: ${statusLabel}. ` : "Current status: In Queue. ";
     const categoryText =
       categoryLabel !== "General" ? `${categoryLabel} incident. ` : "";
     return `You’re chatting about "${alertTitle}". ${categoryText}${statusText}I can help with safety guidance, updates, next steps, or follow-up information.`;
@@ -299,7 +306,7 @@ export default function ChatScreen() {
       categoryLabel !== "General" ? `${categoryLabel} incident: ` : "";
 
     if (normalized.includes("status") || normalized.includes("update")) {
-      return `${categoryPrefix}Your reported incident is currently marked as ${statusLabel ?? "pending"}. If the situation changes, update the details here so you can stay coordinated with responders.`;
+      return `${categoryPrefix}Your reported incident is currently marked as ${statusLabel ?? "In Queue"}. If the situation changes, update the details here so you can stay coordinated with responders.`;
     }
 
     if (
@@ -694,6 +701,11 @@ export default function ChatScreen() {
   return (
     <ThemedView style={[styles.container, { backgroundColor: screenBg }]}>
       <SafeAreaView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={styles.keyboardAware}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
         <View style={styles.hero}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <IconSymbol name="arrow.left" size={18} color="#ffffff" />
@@ -767,6 +779,8 @@ export default function ChatScreen() {
             <ScrollView
               ref={scrollRef}
               contentContainerStyle={styles.threadContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
             >
               {messages.map((m) => (
                 <View
@@ -856,6 +870,9 @@ export default function ChatScreen() {
                 placeholder="Ask a question..."
                 placeholderTextColor="#6b7280"
                 style={[styles.input, { color: textColor }]}
+                onFocus={() => {
+                  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
+                }}
                 multiline
               />
               <View style={styles.composerIcons}>
@@ -888,6 +905,7 @@ export default function ChatScreen() {
               </Pressable>
             </View>
           </View>
+        </KeyboardAvoidingView>
 
         <Modal
           visible={showStatusMenu}
@@ -962,6 +980,7 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardAware: { flex: 1 },
   hero: {
     backgroundColor: TealColors.primary,
     paddingHorizontal: 16,

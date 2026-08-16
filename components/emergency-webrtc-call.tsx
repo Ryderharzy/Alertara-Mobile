@@ -29,7 +29,9 @@ import { io, Socket } from 'socket.io-client';
 const SIGNALING_URL = (process.env.EXPO_PUBLIC_SOCKET_URL || 'https://emergency-comm.alertaraqc.com').replace(/\/$/, '');
 const INTEGRATED_API_KEY = 'EMERGENCY-SYSTEM-INTEGRATED-KEY-2026';
 const TRANSFER_API_URL = `${SIGNALING_URL}/api/transfer-call.php?api_key=${encodeURIComponent(INTEGRATED_API_KEY)}`;
+const CALL_SESSION_API_URL = `${SIGNALING_URL}/ADMIN/api/call-session.php`;
 const WEBRTC_CONFIG_URL = SIGNALING_URL + '/api/webrtc-config.php';
+const CALL_LOBBY_ROOM = 'emergency-lobby';
 const STUN_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:global.stun.twilio.com:3478' },
@@ -304,6 +306,42 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
     }
   }, [stopSpeakingMonitor]);
 
+  const resetCallResourcesForFreshStart = useCallback(() => {
+    stopSpeakingMonitor();
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    peerRef.current?.close();
+    peerRef.current = null;
+    transferPeerRef.current?.close();
+    transferPeerRef.current = null;
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+    pendingCandidatesRef.current = [];
+    pendingTransferCandidatesRef.current = [];
+    transferNegotiationIdRef.current = null;
+    transferNegotiationStartedAtRef.current = 0;
+    if (transferRetryTimerRef.current) clearTimeout(transferRetryTimerRef.current);
+    transferRetryTimerRef.current = null;
+    transferPayloadRef.current = null;
+    transferOfferPayloadRef.current = null;
+    ersPeerConnectedRef.current = false;
+    ersTransferRequestedRef.current = false;
+    ersTransferApprovedRef.current = false;
+    relayRetryUsedRef.current = false;
+    pendingOutgoingMessagesRef.current.clear();
+    messageAcksInFlightRef.current.clear();
+    seenMessageIdsRef.current.clear();
+    setRemoteStream(null);
+    setMessages([]);
+    if (callAudioStartedRef.current) {
+      InCallManager.setMicrophoneMute(false);
+      InCallManager.setForceSpeakerphoneOn(false);
+      InCallManager.setKeepScreenOn(false);
+      InCallManager.stop();
+      callAudioStartedRef.current = false;
+    }
+  }, [stopSpeakingMonitor]);
+
   const endCall = useCallback(async (notifyAdmin = true) => {
     if (endingRef.current) return;
     void playAlertaraActionSound('callEnd');
@@ -355,6 +393,36 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       source: 'Alertara Mobile',
     };
   }, [userProfile]);
+
+  const persistOpenEmergencyCall = useCallback(async (offerPayload: any) => {
+    if (!offerPayload?.callId) return false;
+    try {
+      const response = await fetch(CALL_SESSION_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': INTEGRATED_API_KEY,
+        },
+        body: JSON.stringify({
+          action: 'upsert_open',
+          callId: offerPayload.callId,
+          room: offerPayload.room || `emergency-call-${offerPayload.callId}`,
+          caller: offerPayload.caller || callerPayload(),
+          location: offerPayload.location || null,
+          conversationId: offerPayload.conversationId || offerPayload.conversation_id || null,
+          offerPayload,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.message || 'Unable to save open emergency call.');
+      }
+      return true;
+    } catch (error) {
+      console.error('[call][mobile] failed to persist open call', error);
+      return false;
+    }
+  }, [callerPayload]);
 
   const autoTransferToErs = useCallback(async (
     socket: Socket,
@@ -793,21 +861,30 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       socket.on(eventName, prepareErsTransferOffer);
     });
     socket.on('request-offer', async (payload: any) => {
-      if (!peerRef.current || !payloadMatchesActiveCall(payload)) return;
-      const offer = await peerRef.current.createOffer({ iceRestart: true });
-      await peerRef.current.setLocalDescription(offer);
-      socket.emit('offer', {
-        sdp: offer,
-        callId: callIdRef.current,
-        room: roomRef.current,
-        caller: { id: userProfile?.id, name: userProfile?.name, email: userProfile?.email, phone: userProfile?.phone },
-        resumed: true,
-      }, roomRef.current);
+      const peer = peerRef.current;
+      if (!peer || !payloadMatchesActiveCall(payload)) return;
+      if ((peer as any).signalingState && (peer as any).signalingState !== 'stable') return;
+      try {
+        const offer = await peer.createOffer({ iceRestart: true });
+        await peer.setLocalDescription(offer);
+        socket.emit('offer', {
+          sdp: offer,
+          callId: callIdRef.current,
+          room: roomRef.current,
+          caller: { id: userProfile?.id, name: userProfile?.name, email: userProfile?.email, phone: userProfile?.phone },
+          resumed: true,
+        }, roomRef.current);
+      } catch (error) {
+        console.warn('[call][mobile] unable to refresh offer', error);
+      }
     });
   }, [appendMessage, attachRemoteAudio, endCall, flushPendingCallMessages, payloadMatchesActiveCall, startSpeakingMonitor, userProfile]);
 
   const startCall = useCallback(async () => {
     if (startedRef.current) return;
+    resetCallResourcesForFreshStart();
+    endingRef.current = false;
+    setElapsed(0);
     startedRef.current = true;
     setCallState('requesting');
     setStatus('Requesting microphone and location access...');
@@ -823,7 +900,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       }
 
       setCallState('connecting');
-      setStatus('Connecting to the Emergency Respondent...');
+      setStatus('Connecting to Emergency Communication admin...');
       const localStream = await mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -847,9 +924,8 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       callIdRef.current = callId;
       roomRef.current = room;
 
-      // Emergency-Com is the production relay only: do not create a Two-Way
-      // Communication record for a live voice call. Its unique private room
-      // is forwarded directly to ERS after the caller has joined it.
+      // Emergency-Com answers live calls first. The private room is announced
+      // to the admin call lobby and can be manually transferred later.
 
       const socket = io(SIGNALING_URL, {
         path: '/socket.io',
@@ -883,7 +959,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
         const state = peer.connectionState;
         if (state === 'connected') {
           setCallState('connected');
-          setStatus('Connected to the Emergency Respondent');
+          setStatus('Connected to Emergency Communication admin');
           startSpeakingMonitor();
         } else if (state === 'failed') {
           // The lobby peer is superseded as soon as the call is forwarded to
@@ -902,6 +978,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       const offerPayload = {
         sdp: offer,
         callId,
+        room,
         userId: userProfile?.id || null,
         userName: userProfile?.name || 'Emergency User',
         caller: callerPayload(),
@@ -911,18 +988,19 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
           accuracy: location.coords.accuracy,
         } : null,
       };
-      // The caller joins a unique Emergency-Com private room first. The relay
-      // then forwards that room to ERS without creating a Two-Way item.
-      socket.emit('offer', { ...offerPayload, room }, room);
+      // The caller joins a unique private room, then announces it to the
+      // Emergency-Com admin call lobby. No ERS transfer happens until admin action.
+      await persistOpenEmergencyCall(offerPayload);
+      socket.emit('offer', offerPayload, CALL_LOBBY_ROOM);
       setCallState('ringing');
-      void autoTransferToErs(socket, callId, room, location);
+      setStatus('Waiting for Emergency Communication admin to answer...');
     } catch (error: any) {
       cleanup();
       startedRef.current = false;
       setCallState('failed');
       setStatus(error?.message || 'Unable to start emergency call.');
     }
-  }, [attachRemoteAudio, autoTransferToErs, callerPayload, cleanup, configureSocket, endCall, startCallAudio, startSpeakingMonitor, userProfile?.id, userProfile?.name]);
+  }, [attachRemoteAudio, callerPayload, cleanup, configureSocket, endCall, persistOpenEmergencyCall, resetCallResourcesForFreshStart, startCallAudio, startSpeakingMonitor, userProfile?.id, userProfile?.name]);
 
   const startCallRef = useRef(startCall);
   const cleanupRef = useRef(cleanup);
