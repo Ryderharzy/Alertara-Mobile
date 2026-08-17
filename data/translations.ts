@@ -1,6 +1,6 @@
 import { LanguageOption } from "@/context/preferences-context";
 
-type LangMap = Record<LanguageOption, string>;
+type LangMap = Record<LanguageOption, string> & Partial<Record<string, string>>;
 
 const translations: Record<string, LangMap> = {
   // Navigation
@@ -196,7 +196,7 @@ const translations: Record<string, LangMap> = {
     war: "Isumpot an hin-o/ano, nakit-an nga panganib, apektado nga tawo, ngan mga daanan.",
     hil: "Isulod ang sin-o/ano, nakit-a nga panganib, apektado nga tawo, kag mga daanan.",
   },
-  "report.attach": { en: "Attach photo / video", es: "Adjuntar foto / video", fr: "Joindre photo / vidéo", tl: "Mag-attach ng larawan / video", ceb: "Pag-attach og litrato / video", war: "Pag-attach hin litrato / video", hil: "Pag-attach sang litrato / video" },
+  "report.attach": { en: "Attach photo", es: "Adjuntar foto", fr: "Joindre une photo", tl: "Mag-attach ng larawan", ceb: "Pag-attach og litrato", war: "Pag-attach hin litrato", hil: "Pag-attach sang litrato" },
   "report.hideMedia": { en: "Hide media", es: "Ocultar medios", fr: "Masquer les médias", tl: "Itago ang media", ceb: "Tago-an ang media", war: "Tago-an an media", hil: "Tago-an ang media" },
   "report.attachNote": {
     en: "Camera ready · files stored locally until submit",

@@ -1,11 +1,16 @@
 import { apiClient } from "./api-config";
 
 export interface DeviceData {
-  user_id: number;
+  user_id?: number;
   device_id: string;
   device_type?: string;
   device_name?: string;
   fcm_token?: string;
+  push_token?: string;
+  token_type?: 'expo' | 'fcm';
+  notification_permission?: 'granted' | 'denied' | 'undetermined';
+  notification_channel?: string;
+  notification_sound?: string;
 }
 
 export interface DeviceResponse {
@@ -63,8 +68,9 @@ export const deviceService = {
       });
       return response.data;
     } catch (error) {
-      console.error('Device deactivation failed:', error);
+      console.warn('Device deactivation failed:', error);
       throw error;
     }
   }
 };
+

@@ -7,7 +7,8 @@ import { useTheme } from "@/context/theme-context";
 import { getTranslation } from "@/data/emergency-translations";
 import {
     NOTIFICATION_ACK_STORAGE_KEY,
-    NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
+    setNotificationUnreadCount,
+    subscribeNotificationCenterChanges,
 } from "@/data/notification-center";
 import { alertAcknowledgmentService } from "@/services/api/alert-acknowledgment-service";
 import { apiClient } from "@/services/api/api-config";
@@ -15,6 +16,7 @@ import { FontAwesome, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Swipeable } from "react-native-gesture-handler";
 import {
     Animated,
     Easing,
@@ -26,6 +28,7 @@ import {
     TextInput,
     UIManager,
     View,
+    Linking,
 } from "react-native";
 
 const LOCAL_NEWS_CACHE_KEY = "@alertara_local_news_cache";
@@ -51,6 +54,9 @@ type NotificationItem = {
   description: string;
   actions: string[];
   source: string;
+  url?: string;
+  weatherFacts?: WeatherForecastFact[];
+  isWeatherForecast?: boolean;
 };
 
 type CitizenStatus = "safe" | "need-help" | "evacuated" | "not-affected";
@@ -83,6 +89,10 @@ type AlertApiRow = {
   incident_id: number | null;
   created_at: string | null;
   updated_at: string | null;
+  more_info_url?: string | null;
+  moreInfoUrl?: string | null;
+  source_url?: string | null;
+  url?: string | null;
 };
 
 const severityColors: Record<string, string> = {
@@ -97,6 +107,111 @@ const severityMap: Record<string, "HIGH" | "MEDIUM" | "LOW"> = {
   low: "LOW",
 };
 
+type WeatherForecastFact = {
+  label: string;
+  value: string;
+  icon: IconSymbolName;
+};
+
+type ParsedForecastBody = {
+  description: string;
+  actions: string[];
+  url?: string;
+  facts: WeatherForecastFact[];
+  isWeatherForecast: boolean;
+};
+
+function cleanNotificationText(rawBody: string | null | undefined): string {
+  return String(rawBody ?? "")
+    .replace(/\\r\\n|\\n|\\r|`n/g, "\n")
+    .replace(/\r\n|\r/g, "\n")
+    .replace(/\*\*/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function formatNotificationSource(source: string | null | undefined): string {
+  const normalized = String(source ?? "").trim().toLowerCase();
+  const labels: Record<string, string> = {
+    open_meteo_tomorrow_forecast: "Open-Meteo forecast",
+    open_meteo_weather_risk: "Open-Meteo weather risk",
+    open_meteo: "Open-Meteo",
+    phivolcs: "PHIVOLCS",
+    pagasa: "PAGASA",
+  };
+  return labels[normalized] ?? (source?.trim() || "Alertara");
+}
+
+function iconForWeatherFact(label: string): IconSymbolName {
+  const key = label.toLowerCase();
+  if (key.includes("rain chance")) return "cloud.rain";
+  if (key.includes("rainfall")) return "drop";
+  if (key.includes("temperature")) return "thermometer";
+  if (key.includes("wind")) return "leaf";
+  if (key.includes("peak") || key.includes("period")) return "clock";
+  return "cloud.sun";
+}
+
+function parseWeatherFact(line: string): WeatherForecastFact | null {
+  const match = line.match(/^\s*([^:]+):\s*(.+)$/);
+  if (!match) return null;
+  const label = match[1].trim();
+  const value = match[2].trim();
+  if (!/rain chance|expected rainfall|temperature|wind|peak period/i.test(label)) {
+    return null;
+  }
+  return { label, value, icon: iconForWeatherFact(label) };
+}
+
+function parseForecastNotificationBody(rawBody: string): ParsedForecastBody {
+  const body = cleanNotificationText(rawBody);
+  const linkMatch = body.match(/(?:View Full Forecast|See more info):\s*(https?:\/\/\S+)/i);
+  const url = linkMatch?.[1];
+  const bodyWithoutLink = body
+    .replace(/\n*(?:View Full Forecast|See more info):\s*https?:\/\/\S+/i, "")
+    .replace(/\n?\s*(?:-|\u2022|â€¢|Ã¢â‚¬Â¢)?\s*Expect aftershocks[^\n]*/gi, "")
+    .trim();
+  const parts = bodyWithoutLink.split(/\n\s*(?:PRECAUTIONS|Safety actions):\s*\n/i);
+  const isWeatherForecast = /WEATHER FORECAST\s*-\s*QUEZON CITY/i.test(bodyWithoutLink);
+
+  if (parts.length < 2) {
+    return {
+      description: bodyWithoutLink || body,
+      actions: [],
+      url,
+      facts: [],
+      isWeatherForecast,
+    };
+  }
+
+  const forecastLines = parts[0]
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const facts = forecastLines
+    .map(parseWeatherFact)
+    .filter((fact): fact is WeatherForecastFact => Boolean(fact));
+  const description = forecastLines
+    .filter((line) => !/^WEATHER FORECAST\s*-\s*QUEZON CITY$/i.test(line))
+    .filter((line) => !parseWeatherFact(line))
+    .join("\n")
+    .trim();
+  const actions = parts
+    .slice(1)
+    .join("\n")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:-|\u2022|â€¢|Ã¢â‚¬Â¢)\s*/, "").trim())
+    .filter((line) => line && !/expect aftershocks/i.test(line) && !/^View Full Forecast:/i.test(line))
+    .slice(0, 5);
+
+  return {
+    description: description || bodyWithoutLink || body,
+    actions,
+    url,
+    facts,
+    isWeatherForecast,
+  };
+}
 const categoryIconMap: Record<string, IconSymbolName> = {
   weather: "cloud.sun",
   "weather forecast": "cloud.sun",
@@ -150,6 +265,8 @@ function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
   const body =
     alert.content?.trim() || alert.message?.trim() || "No details available.";
   const area = alert.area?.trim();
+  const parsedBody = parseForecastNotificationBody(body);
+  const fallbackAction = alert.message?.trim() || body;
 
   const mappedItem = {
     id: String(alert.id),
@@ -160,12 +277,13 @@ function mapAlertToNotificationItem(alert: AlertApiRow): NotificationItem {
     alertType: `${alert.category?.trim() || "Alert"} Notice`,
     severity,
     timestamp: alert.created_at || new Date().toISOString(),
-    description: area ? `${body} Area: ${area}` : body,
-    actions: alert.message?.trim() ? [alert.message.trim()] : [body],
+    description: area ? `${parsedBody.description} Area: ${area}` : parsedBody.description,
+    actions: parsedBody.actions.length ? parsedBody.actions : [fallbackAction],
     source: alert.source?.trim() || "Alertara",
+    url: alert.more_info_url?.trim() || alert.moreInfoUrl?.trim() || alert.source_url?.trim() || alert.url?.trim() || parsedBody.url || undefined,
   };
 
-  console.log(`🔄 Mapped alert "${mappedItem.title}" to category "${mappedItem.category}" with icon "${mappedItem.icon}"`);
+  console.log(`Ã°Å¸â€â€ž Mapped alert "${mappedItem.title}" to category "${mappedItem.category}" with icon "${mappedItem.icon}"`);
   return mappedItem;
 }
 
@@ -182,8 +300,8 @@ async function fetchFromNewsDataAPI(
   apiKey: string | undefined,
 ): Promise<GNewsArticle[]> {
   if (!apiKey) {
-    console.error("❌ NewsData API key is missing");
-    throw new Error("Missing NewsData API key.");
+    // Local news is optional when the third-party API key is not configured.
+    return [];
   }
 
   const params = new URLSearchParams({
@@ -193,18 +311,18 @@ async function fetchFromNewsDataAPI(
   });
 
   const url = `https://newsdata.io/api/1/news?${params.toString()}`;
-  console.log("🔄 Falling back to NewsData API:", url);
+  console.log("Ã°Å¸â€â€ž Falling back to NewsData API:", url);
   const response = await fetch(url);
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("❌ NewsData API request failed:", response.status, errorText);
+    console.error("Ã¢ÂÅ’ NewsData API request failed:", response.status, errorText);
     throw new Error(errorText || `NewsData request failed (${response.status})`);
   }
 
   const data = (await response.json()) as { results?: Array<{ title?: string; description?: string; content?: string; link?: string; pubDate?: string; source_id?: string }> };
   const results = Array.isArray(data.results) ? data.results : [];
-  console.log(`📊 NewsData returned ${results.length} results`);
+  console.log(`Ã°Å¸â€œÅ  NewsData returned ${results.length} results`);
 
   return results.map((result) => ({
     title: result.title,
@@ -349,9 +467,29 @@ const NotificationCard = ({
   const router = useRouter();
   const severityColor = severityColors[alert.severity] ?? "#999";
 
+  const renderRightActions = () => (
+    <View style={styles.swipeActions}>
+      <Pressable
+        style={[styles.swipeActionButton, { backgroundColor: "#16a34a" }]}
+        onPress={() => onAcknowledge(alert.id)}
+      >
+        <IconSymbol name="checkmark.circle" size={18} color="#fff" />
+        <ThemedText style={styles.swipeActionText}>Seen</ThemedText>
+      </Pressable>
+      <Pressable
+        style={[styles.swipeActionButton, { backgroundColor: highlightColor }]}
+        onPress={() => onOpenDetails(alert)}
+      >
+        <IconSymbol name="chevron.right" size={18} color="#fff" />
+        <ThemedText style={styles.swipeActionText}>Open</ThemedText>
+      </Pressable>
+    </View>
+  );
+
   if (compactMode) {
     return (
-      <Pressable
+      <Swipeable renderRightActions={renderRightActions} overshootRight={false}>
+        <Pressable
         style={[
           styles.compactCard,
           {
@@ -396,7 +534,7 @@ const NotificationCard = ({
               ]}
               numberOfLines={1}
             >
-              {alert.category} · {alert.severity} · {alert.timestamp}
+              {alert.category} Ã‚Â· {alert.severity} Ã‚Â· {alert.timestamp}
             </ThemedText>
           </View>
         </View>
@@ -405,12 +543,14 @@ const NotificationCard = ({
           size={18}
           color={severityColor}
         />
-      </Pressable>
+        </Pressable>
+      </Swipeable>
     );
   }
 
   return (
-    <Pressable
+    <Swipeable renderRightActions={renderRightActions} overshootRight={false}>
+      <Pressable
       style={[styles.card, { backgroundColor: cardBackground }]}
       onPress={() => onOpenDetails(alert)}
     >
@@ -418,7 +558,7 @@ const NotificationCard = ({
         <View style={styles.categoryRow}>
           <IconSymbol name={alert.icon} size={18} color={severityColor} />
           <ThemedText style={[styles.categoryText, { color: textColor }]}>
-            {alert.category} · {alert.type}
+            {alert.category} Ã‚Â· {alert.type}
           </ThemedText>
         </View>
         <View
@@ -531,7 +671,8 @@ const NotificationCard = ({
           </ThemedText>
         </View>
       )}
-    </Pressable>
+      </Pressable>
+    </Swipeable>
   );
 };
 
@@ -544,11 +685,11 @@ export default function NotificationScreen() {
   const newsdataApiKey = process.env.EXPO_PUBLIC_NEWSDATA_API_KEY;
   
   // Debug: Log API keys on mount
-  console.log("🔑 Environment variables loaded:");
-  console.log("🔑 GNews API key exists:", !!gnewsApiKey);
-  console.log("🔑 GNews API key length:", gnewsApiKey?.length || 0);
-  console.log("🔑 NewsData API key exists:", !!newsdataApiKey);
-  console.log("🔑 NewsData API key length:", newsdataApiKey?.length || 0);
+  console.log("Ã°Å¸â€â€˜ Environment variables loaded:");
+  console.log("Ã°Å¸â€â€˜ GNews API key exists:", !!gnewsApiKey);
+  console.log("Ã°Å¸â€â€˜ GNews API key length:", gnewsApiKey?.length || 0);
+  console.log("Ã°Å¸â€â€˜ NewsData API key exists:", !!newsdataApiKey);
+  console.log("Ã°Å¸â€â€˜ NewsData API key length:", newsdataApiKey?.length || 0);
   const screenBackground = isDarkMode ? "#0f1c1f" : "#f2efe8";
   const cardBackground = isDarkMode ? "#18252a" : "#ffffff";
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
@@ -563,6 +704,7 @@ export default function NotificationScreen() {
   const [searchMounted, setSearchMounted] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [backendAlerts, setBackendAlerts] = useState<NotificationItem[]>([]);
+  const [backendRefreshNonce, setBackendRefreshNonce] = useState(0);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsError, setAlertsError] = useState("");
   const [localNewsItems, setLocalNewsItems] = useState<NotificationItem[]>([]);
@@ -607,7 +749,7 @@ export default function NotificationScreen() {
       { key: "Local News", icon: "newspaper" as IconSymbolName },
     ];
     
-    console.log("🏷️ Fixed category tabs:", fixedTabs.map(t => t.key));
+    console.log("Ã°Å¸ÂÂ·Ã¯Â¸Â Fixed category tabs:", fixedTabs.map(t => t.key));
     return fixedTabs;
   }, []);
   const selectedCategoryItems = useMemo(() => {
@@ -626,7 +768,7 @@ export default function NotificationScreen() {
         const alertCategory = (alert.category || "").toLowerCase();
         return healthKeywords.some(keyword => alertCategory.includes(keyword));
       });
-      console.log(`🏥 Health tab: ${backendHealthItems.length} backend items, ${healthNewsItems.length} news items`);
+      console.log(`Ã°Å¸ÂÂ¥ Health tab: ${backendHealthItems.length} backend items, ${healthNewsItems.length} news items`);
       return [...backendHealthItems, ...healthNewsItems];
     }
 
@@ -647,7 +789,7 @@ export default function NotificationScreen() {
       return keywords.some(keyword => alertCategory.includes(keyword));
     });
     
-    console.log(`🔍 Filtered ${filtered.length} items for category "${selectedCategory}" using keywords:`, keywords);
+    console.log(`Ã°Å¸â€Â Filtered ${filtered.length} items for category "${selectedCategory}" using keywords:`, keywords);
     return filtered;
   }, [allNotifications, backendAlerts, localNewsItems, healthNewsItems, selectedCategory]);
 
@@ -771,66 +913,66 @@ export default function NotificationScreen() {
     let active = true;
 
     const loadBackendAlerts = async () => {
-      console.log("🔔 Starting to load backend alerts...");
+      console.log("Ã°Å¸â€â€ Starting to load backend alerts...");
       setAlertsLoading(true);
       setAlertsError("");
 
       try {
-        console.log("📡 Making API call to /alerts endpoint");
+        console.log("Ã°Å¸â€œÂ¡ Making API call to /alerts endpoint");
         const response = await apiClient.get("/alerts/get_alerts.php");
-        console.log("✅ API call successful, processing response...");
-        console.log("📄 Raw response data:", response.data);
+        console.log("Ã¢Å“â€¦ API call successful, processing response...");
+        console.log("Ã°Å¸â€œâ€ž Raw response data:", response.data);
 
         // Handle different response structures
         let rows: AlertApiRow[] = [];
         
         if (Array.isArray(response.data)) {
           rows = response.data as AlertApiRow[];
-          console.log("📋 Response is direct array");
+          console.log("Ã°Å¸â€œâ€¹ Response is direct array");
         } else if (Array.isArray(response.data?.data)) {
           rows = response.data.data as AlertApiRow[];
-          console.log("📋 Response has data array");
+          console.log("Ã°Å¸â€œâ€¹ Response has data array");
         } else if (response.data?.alerts && Array.isArray(response.data.alerts)) {
           rows = response.data.alerts as AlertApiRow[];
-          console.log("📋 Response has alerts array");
+          console.log("Ã°Å¸â€œâ€¹ Response has alerts array");
         } else if (typeof response.data === 'object' && response.data !== null) {
           // Try to find any array in the response
           const arrayKey = Object.keys(response.data).find(key => Array.isArray(response.data[key]));
           if (arrayKey) {
             rows = response.data[arrayKey] as AlertApiRow[];
-            console.log(`📋 Found array in response.${arrayKey}`);
+            console.log(`Ã°Å¸â€œâ€¹ Found array in response.${arrayKey}`);
           }
         }
 
-        console.log(`📊 Parsed ${rows.length} alert rows from response`);
+        console.log(`Ã°Å¸â€œÅ  Parsed ${rows.length} alert rows from response`);
         
         if (rows.length > 0) {
-          console.log("🔍 Sample alert structure:", rows[0]);
+          console.log("Ã°Å¸â€Â Sample alert structure:", rows[0]);
         }
 
         if (!active) {
-          console.log("⚠️ Component unmounted, skipping state update");
+          console.log("Ã¢Å¡Â Ã¯Â¸Â Component unmounted, skipping state update");
           return;
         }
 
         const mappedAlerts = rows.map(mapAlertToNotificationItem);
-        console.log(`🔄 Mapped ${mappedAlerts.length} alerts to notification items`);
+        console.log(`Ã°Å¸â€â€ž Mapped ${mappedAlerts.length} alerts to notification items`);
         
         // Log categories found
         const categories = [...new Set(mappedAlerts.map(alert => alert.category))];
-        console.log("📑 Categories found:", categories);
+        console.log("Ã°Å¸â€œâ€˜ Categories found:", categories);
         
         setBackendAlerts(mappedAlerts);
       } catch (error) {
-        console.error("❌ Failed to load backend alerts:", error);
+        console.error("Ã¢ÂÅ’ Failed to load backend alerts:", error);
         if (active) {
           const errorMessage = error instanceof Error ? error.message : "Failed to load alerts.";
-          console.error(`📝 Setting error message: ${errorMessage}`);
+          console.error(`Ã°Å¸â€œÂ Setting error message: ${errorMessage}`);
           setAlertsError(errorMessage);
         }
       } finally {
         if (active) {
-          console.log("✅ Alert loading completed");
+          console.log("Ã¢Å“â€¦ Alert loading completed");
           setAlertsLoading(false);
         }
       }
@@ -839,7 +981,7 @@ export default function NotificationScreen() {
     loadBackendAlerts();
 
     const loadLocalNews = async () => {
-      console.log("📰 Starting loadLocalNews...");
+      console.log("Ã°Å¸â€œÂ° Starting loadLocalNews...");
       setLocalNewsLoading(true);
       setLocalNewsError("");
 
@@ -851,18 +993,18 @@ export default function NotificationScreen() {
           const cacheAge = Date.now() - timestamp;
           
           if (cacheAge < CACHE_DURATION) {
-            console.log("📰 Using cached local news (age:", Math.floor(cacheAge / 1000), "seconds)");
+            console.log("Ã°Å¸â€œÂ° Using cached local news (age:", Math.floor(cacheAge / 1000), "seconds)");
             if (active) {
               setLocalNewsItems(data);
               setLocalNewsLoading(false);
             }
             // Still fetch fresh data in background
           } else {
-            console.log("📰 Cache expired, fetching fresh local news");
+            console.log("Ã°Å¸â€œÂ° Cache expired, fetching fresh local news");
           }
         }
       } catch (cacheError) {
-        console.error("❌ Cache read error:", cacheError);
+        console.error("Ã¢ÂÅ’ Cache read error:", cacheError);
       }
 
       try {
@@ -881,7 +1023,7 @@ export default function NotificationScreen() {
               apikey: gnewsApiKey,
             });
             const url = `https://gnews.io/api/v4/search?${params.toString()}`;
-            console.log("📰 Loading local news from GNews:", url);
+            console.log("Ã°Å¸â€œÂ° Loading local news from GNews:", url);
             const response = await fetch(url);
 
             if (!response.ok) {
@@ -894,9 +1036,9 @@ export default function NotificationScreen() {
             const data = (await response.json()) as { articles?: GNewsArticle[] };
             articles = Array.isArray(data.articles) ? data.articles : [];
             sourceName = "GNews";
-            console.log(`📰 Loaded ${articles.length} local news articles from GNews`);
+            console.log(`Ã°Å¸â€œÂ° Loaded ${articles.length} local news articles from GNews`);
           } catch (gnewsError) {
-            console.log("⚠️ GNews failed, falling back to NewsData:", gnewsError);
+            console.log("Ã¢Å¡Â Ã¯Â¸Â GNews failed, falling back to NewsData:", gnewsError);
             // Fall through to NewsData below
           }
         }
@@ -908,7 +1050,7 @@ export default function NotificationScreen() {
             newsdataApiKey
           );
           sourceName = "NewsData";
-          console.log(`📰 Loaded ${articles.length} local news articles from NewsData`);
+          console.log(`Ã°Å¸â€œÂ° Loaded ${articles.length} local news articles from NewsData`);
         }
 
         if (!active) {
@@ -949,9 +1091,9 @@ export default function NotificationScreen() {
               timestamp: Date.now(),
             })
           );
-          console.log("💾 Local news cached successfully");
+          console.log("Ã°Å¸â€™Â¾ Local news cached successfully");
         } catch (cacheError) {
-          console.error("❌ Cache write error:", cacheError);
+          console.error("Ã¢ÂÅ’ Cache write error:", cacheError);
         }
         
         // Load health news after local news to avoid rate limiting
@@ -960,7 +1102,7 @@ export default function NotificationScreen() {
         }
       } catch (error) {
         if (active) {
-          console.error("❌ Failed to load local news:", error);
+          console.error("Ã¢ÂÅ’ Failed to load local news:", error);
           const errorMessage = error instanceof Error ? error.message : "Failed to load local news.";
           setLocalNewsError(errorMessage);
         }
@@ -974,9 +1116,9 @@ export default function NotificationScreen() {
     loadLocalNews();
 
     const loadHealthNews = async () => {
-      console.log("🏥 Starting loadHealthNews...");
-      console.log("🏥 GNews API key available:", !!gnewsApiKey);
-      console.log("🏥 NewsData API key available:", !!newsdataApiKey);
+      console.log("Ã°Å¸ÂÂ¥ Starting loadHealthNews...");
+      console.log("Ã°Å¸ÂÂ¥ GNews API key available:", !!gnewsApiKey);
+      console.log("Ã°Å¸ÂÂ¥ NewsData API key available:", !!newsdataApiKey);
       setHealthNewsLoading(true);
       setHealthNewsError("");
 
@@ -988,18 +1130,18 @@ export default function NotificationScreen() {
           const cacheAge = Date.now() - timestamp;
           
           if (cacheAge < CACHE_DURATION) {
-            console.log("🏥 Using cached health news (age:", Math.floor(cacheAge / 1000), "seconds)");
+            console.log("Ã°Å¸ÂÂ¥ Using cached health news (age:", Math.floor(cacheAge / 1000), "seconds)");
             if (active) {
               setHealthNewsItems(data);
               setHealthNewsLoading(false);
             }
             // Still fetch fresh data in background
           } else {
-            console.log("🏥 Cache expired, fetching fresh health news");
+            console.log("Ã°Å¸ÂÂ¥ Cache expired, fetching fresh health news");
           }
         }
       } catch (cacheError) {
-        console.error("❌ Health cache read error:", cacheError);
+        console.error("Ã¢ÂÅ’ Health cache read error:", cacheError);
       }
 
       try {
@@ -1018,7 +1160,7 @@ export default function NotificationScreen() {
               apikey: gnewsApiKey,
             });
             const url = `https://gnews.io/api/v4/search?${params.toString()}`;
-            console.log("🏥 Loading health news from GNews:", url);
+            console.log("Ã°Å¸ÂÂ¥ Loading health news from GNews:", url);
             const response = await fetch(url);
 
             if (!response.ok) {
@@ -1031,9 +1173,9 @@ export default function NotificationScreen() {
             const data = (await response.json()) as { articles?: GNewsArticle[] };
             articles = Array.isArray(data.articles) ? data.articles : [];
             sourceName = "GNews";
-            console.log(`🏥 Loaded ${articles.length} health news articles from GNews`);
+            console.log(`Ã°Å¸ÂÂ¥ Loaded ${articles.length} health news articles from GNews`);
           } catch (gnewsError) {
-            console.log("⚠️ GNews failed, falling back to NewsData:", gnewsError);
+            console.log("Ã¢Å¡Â Ã¯Â¸Â GNews failed, falling back to NewsData:", gnewsError);
             // Fall through to NewsData below
           }
         }
@@ -1045,7 +1187,7 @@ export default function NotificationScreen() {
             newsdataApiKey
           );
           sourceName = "NewsData";
-          console.log(`🏥 Loaded ${articles.length} health news articles from NewsData`);
+          console.log(`Ã°Å¸ÂÂ¥ Loaded ${articles.length} health news articles from NewsData`);
         }
 
         if (!active) {
@@ -1076,7 +1218,7 @@ export default function NotificationScreen() {
         }));
 
         setHealthNewsItems(mappedHealthNews);
-        console.log(`🏥 Set ${mappedHealthNews.length} health news items to state`);
+        console.log(`Ã°Å¸ÂÂ¥ Set ${mappedHealthNews.length} health news items to state`);
         
         // Save to cache
         try {
@@ -1087,13 +1229,13 @@ export default function NotificationScreen() {
               timestamp: Date.now(),
             })
           );
-          console.log("💾 Health news cached successfully");
+          console.log("Ã°Å¸â€™Â¾ Health news cached successfully");
         } catch (cacheError) {
-          console.error("❌ Health cache write error:", cacheError);
+          console.error("Ã¢ÂÅ’ Health cache write error:", cacheError);
         }
       } catch (error) {
         if (active) {
-          console.error("❌ Failed to load health news:", error);
+          console.error("Ã¢ÂÅ’ Failed to load health news:", error);
           const errorMessage = error instanceof Error ? error.message : "Failed to load health news.";
           setHealthNewsError(errorMessage);
         }
@@ -1107,9 +1249,15 @@ export default function NotificationScreen() {
     return () => {
       active = false;
     };
-  }, [gnewsApiKey, newsdataApiKey]);
+  }, [backendRefreshNonce, gnewsApiKey, newsdataApiKey]);
 
-  const handleGeneralChat = () => router.push("/messages");
+
+  useEffect(() => {
+    return subscribeNotificationCenterChanges(() => {
+      setBackendRefreshNonce((value) => value + 1);
+    });
+  }, []);
+  const handleGeneralChat = () => router.push("/(tabs)/report");
 
   const handleAcknowledge = (alertId: string) => {
     setAcknowledgedIds((current) =>
@@ -1123,7 +1271,7 @@ export default function NotificationScreen() {
         alertAcknowledgmentService.acknowledgeAlert({
           alert_id: numericAlertId,
           user_id: userProfile.id,
-          response_status: citizenResponses[alertId] || 'safe',
+          status: citizenResponses[alertId] || 'safe',
         }).catch((error: unknown) => {
           console.error("Failed to sync alert acknowledgment to backend:", error);
           // Don't throw error - local state update succeeded
@@ -1175,12 +1323,22 @@ export default function NotificationScreen() {
       (alert) => !acknowledgedIds.includes(alert.id),
     ).length;
 
-    void AsyncStorage.setItem(
-      NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
-      String(unreadCount),
-    );
+    void setNotificationUnreadCount(unreadCount);
   }, [acknowledgedIds, allNotifications]);
 
+  useEffect(() => {
+    if (alertsLoading || localNewsLoading || healthNewsLoading || allNotifications.length === 0) {
+      return;
+    }
+
+    const visibleIds = allNotifications.map((alert) => alert.id);
+    setAcknowledgedIds((current) => {
+      const currentSet = new Set(current);
+      const missingIds = visibleIds.filter((id) => !currentSet.has(id));
+      return missingIds.length > 0 ? [...current, ...missingIds] : current;
+    });
+    void setNotificationUnreadCount(0);
+  }, [alertsLoading, allNotifications, healthNewsLoading, localNewsLoading]);
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: screenBackground }]}
@@ -1212,7 +1370,13 @@ export default function NotificationScreen() {
                           : "#ffffff",
                     },
                   ]}
-                  onPress={() => router.back()}
+                  onPress={() => {
+                    if (router.canGoBack()) {
+                      router.back();
+                    } else {
+                      router.replace("/(tabs)");
+                    }
+                  }}
                 >
                   <IconSymbol
                     name="arrow.left"
@@ -1612,33 +1776,79 @@ export default function NotificationScreen() {
                 {selectedAlert.description}
               </ThemedText>
 
-              <View style={styles.detailSection}>
-                <ThemedText
-                  style={[styles.detailSectionTitle, { color: textColor }]}
-                >
-                  Action steps
-                </ThemedText>
-                {selectedAlert.actions.map((action) => (
-                  <View key={action} style={styles.detailActionRow}>
+              {selectedAlert.weatherFacts?.length ? (
+                <View style={styles.weatherFactGrid}>
+                  {selectedAlert.weatherFacts.map((fact) => (
                     <View
+                      key={`${fact.label}-${fact.value}`}
                       style={[
-                        styles.detailBullet,
-                        { backgroundColor: highlightColor },
+                        styles.weatherFactCard,
+                        {
+                          borderColor: isDarkMode ? "#244449" : "#c8e2df",
+                          backgroundColor: isDarkMode ? "#0d2325" : "#f2fbfa",
+                        },
                       ]}
-                    />
-                    <ThemedText
-                      style={[styles.detailActionText, { color: textColor }]}
                     >
-                      {action}
-                    </ThemedText>
-                  </View>
-                ))}
-              </View>
+                      <View
+                        style={[
+                          styles.weatherFactIcon,
+                          { backgroundColor: `${highlightColor}20` },
+                        ]}
+                      >
+                        <IconSymbol name={fact.icon} size={18} color={highlightColor} />
+                      </View>
+                      <View style={styles.weatherFactCopy}>
+                        <ThemedText style={[styles.weatherFactLabel, { color: isDarkMode ? "#94a3b8" : "#64748b" }]}>
+                          {fact.label}
+                        </ThemedText>
+                        <ThemedText style={[styles.weatherFactValue, { color: textColor }]}>
+                          {fact.value}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              {selectedAlert.actions.length ? (
+                <View style={styles.detailSection}>
+                  <ThemedText
+                    style={[styles.detailSectionTitle, { color: textColor }]}
+                  >
+                    Action steps
+                  </ThemedText>
+                  {selectedAlert.actions.map((action) => (
+                    <View key={action} style={styles.detailActionRow}>
+                      <View
+                        style={[
+                          styles.detailBullet,
+                          { backgroundColor: highlightColor },
+                        ]}
+                      />
+                      <ThemedText
+                        style={[styles.detailActionText, { color: textColor }]}
+                      >
+                        {action}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
 
               <View style={styles.detailFooter}>
                 <ThemedText style={[styles.detailSource, { color: textColor }]}>
                   Source: {selectedAlert.source}
                 </ThemedText>
+                {selectedAlert.url ? (
+                  <Pressable
+                    style={[styles.detailChatButton, { borderColor: highlightColor }]}
+                    onPress={() => Linking.openURL(selectedAlert.url as string).catch(() => {})}
+                  >
+                    <ThemedText style={[styles.detailChatButtonText, { color: highlightColor }]}>
+                      See more information
+                    </ThemedText>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   style={[
                     styles.detailChatButton,
@@ -2114,7 +2324,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
-  detailSection: {
+  weatherFactGrid: {
+    gap: 10,
+  },
+  weatherFactCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  weatherFactIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  weatherFactCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  weatherFactLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  weatherFactValue: {
+    fontSize: 14,
+    fontWeight: "800",
+    lineHeight: 18,
+  },  detailSection: {
     gap: 8,
   },
   detailSectionTitle: {
@@ -2240,6 +2481,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
   },
+  swipeActions: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    justifyContent: "flex-end",
+    marginBottom: 12,
+    overflow: "hidden",
+    borderRadius: 16,
+  },
+  swipeActionButton: {
+    width: 78,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  swipeActionText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
   messageButton: {
     position: "absolute",
     bottom: 20,
@@ -2257,3 +2517,10 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
 });
+
+
+
+
+
+
+

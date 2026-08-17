@@ -1,4 +1,4 @@
-import { GoogleMap } from "@/components/google-map";
+import { LeafletMap } from "@/components/leaflet-map";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { IconSymbol } from "@/components/ui/icon-symbol";
@@ -417,7 +417,6 @@ export default function SafetyMapScreen() {
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [selectedMarkerData, setSelectedMarkerData] = useState<any>(null);
   const [routePath, setRoutePath] = useState<{ latitude: number; longitude: number }[] | null>(null);
-  const [mapType, setMapType] = useState<"standard" | "satellite" | "hybrid" | "terrain">("hybrid");
   const [focusTarget, setFocusTarget] = useState<{
     latitude: number;
     longitude: number;
@@ -990,7 +989,7 @@ export default function SafetyMapScreen() {
         {isLoadingLocation ? (
           <ActivityIndicator size="large" color={TealColors.primary} />
         ) : (
-          <GoogleMap
+          <LeafletMap
             coordinates={qcBoundaryCoordinates}
             borderColor="#60A5FA"
             userLocation={userLocation}
@@ -1001,7 +1000,6 @@ export default function SafetyMapScreen() {
             isLoadingCrimeData={false}
             clusteringEnabled={!forceShowAllEvacs}
             routePath={routePath}
-            mapType={mapType}
             onMapPress={handleMapPress}
             onMarkerPress={handleMarkerPress}
             focusTarget={focusTarget}
@@ -1085,38 +1083,6 @@ export default function SafetyMapScreen() {
 
           <View style={styles.legendDivider} />
 
-          <View style={styles.mapTypeToggleRow}>
-            {[
-              { key: "hybrid", label: "Hybrid" },
-              { key: "terrain", label: "Terrain" },
-              { key: "standard", label: "Standard" },
-              { key: "satellite", label: "Satellite" },
-            ].map((opt) => (
-              <Pressable
-                key={opt.key}
-                style={[
-                  styles.mapTypeChip,
-                  {
-                    backgroundColor:
-                      mapType === opt.key ? `${TealColors.primary}22` : isDarkMode ? "#1f2937" : "#e5e7eb",
-                    borderColor: mapType === opt.key ? TealColors.primary : isDarkMode ? "#334155" : "#cbd5e1",
-                  },
-                ]}
-                onPress={() => setMapType(opt.key as typeof mapType)}
-              >
-                <ThemedText
-                  style={[
-                    styles.mapTypeChipText,
-                    { color: mapType === opt.key ? TealColors.primary : isDarkMode ? "#e2e8f0" : "#0f172a" },
-                  ]}
-                >
-                  {opt.label}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.legendDivider} />
           <ThemedText style={styles.legendSectionTitle}>{t("map.mapLayers")}</ThemedText>
 
           <Pressable

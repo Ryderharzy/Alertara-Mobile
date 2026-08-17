@@ -12,10 +12,7 @@ import {
   TealColors,
 } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
-import {
-  NOTIFICATION_UNREAD_COUNT_STORAGE_KEY
-} from "@/data/notification-center";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { subscribeNotificationUnreadCount } from "@/data/notification-center";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
@@ -29,7 +26,7 @@ import {
   View,
 } from "react-native";
 
-const SEARCH_PANEL_HEIGHT = 102;
+const SEARCH_PANEL_HEIGHT = 224;
 
 const searchTargets = [
   {
@@ -46,6 +43,11 @@ const searchTargets = [
     label: "Report",
     keywords: ["report", "incident", "submit", "file report"],
     href: "/(tabs)/report",
+  },
+  {
+    label: "Messages",
+    keywords: ["messages", "inbox", "chat", "reports inbox", "general inquiries"],
+    href: "/(tabs)/messages",
   },
   {
     label: "Alerts",
@@ -152,26 +154,14 @@ export function Header() {
     }
   }, [filteredTargets, goToTarget]);
 
-  const refreshUnreadCount = useCallback(async () => {
-    try {
-      const saved = await AsyncStorage.getItem(
-        NOTIFICATION_UNREAD_COUNT_STORAGE_KEY,
-      );
-      const parsed = saved ? Number(saved) : 0;
-      setUnreadCount(Number.isFinite(parsed) ? Math.max(parsed, 0) : 0);
-    } catch {
-      setUnreadCount(0);
-    }
+  const refreshUnreadCount = useCallback(() => {
+    return subscribeNotificationUnreadCount(setUnreadCount);
   }, []);
 
-  useEffect(() => {
-    void refreshUnreadCount();
-  }, [refreshUnreadCount]);
+  useEffect(() => refreshUnreadCount(), [refreshUnreadCount]);
 
   useFocusEffect(
-    useCallback(() => {
-      void refreshUnreadCount();
-    }, [refreshUnreadCount]),
+    useCallback(() => refreshUnreadCount(), [refreshUnreadCount]),
   );
 
   return (
@@ -306,7 +296,7 @@ export function Header() {
                       name="magnifyingglass"
                       color={ICON_COLOR}
                     />
-                    <ThemedText style={styles.suggestionText}>
+                    <ThemedText style={[styles.suggestionText, { color: isDarkMode ? "#f8fafc" : "#111" }]}>
                       <Text style={styles.suggestionMatch}>{highlight}</Text>
                       {remainder}
                     </ThemedText>
@@ -401,7 +391,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingTop: 6,
     gap: 4,
-    maxHeight: 160,
+    maxHeight: 220,
   },
   suggestionList: {
     gap: 6,
@@ -448,3 +438,4 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
 });
+

@@ -60,7 +60,7 @@ export default function EcsHome() {
         icon: "bubble.left.and.bubble.right",
         desc: "Report an incident, chat for updates, and manage all threads in Messages.",
         access: "user",
-        userRoute: "/(tabs)/messages",
+        userRoute: "/(tabs)/report",
         userCtaLabel: "Open Messages",
       },
       {
@@ -84,7 +84,7 @@ export default function EcsHome() {
         icon: "doc.text.magnifyingglass",
         desc: "Review your past reports and conversations in the Messages inbox.",
         access: "user",
-        userRoute: "/(tabs)/messages",
+        userRoute: "/(tabs)/report",
         userCtaLabel: "Open Messages",
       },
     ],
@@ -342,3 +342,4 @@ const styles = StyleSheet.create({
   modalClose: { paddingVertical: 8, alignItems: "center" },
   modalCloseText: { fontSize: 13, fontWeight: "800" },
 });
+

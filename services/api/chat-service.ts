@@ -97,7 +97,6 @@ export const chatService = {
         message: body.message ?? 'Conversation created',
       };
     } catch (error) {
-      console.error('Failed to create conversation:', error);
       throw error;
     }
   },
@@ -123,7 +122,6 @@ export const chatService = {
       }
       return [];
     } catch (error) {
-      console.error('Failed to retrieve messages:', error);
       throw error;
     }
   },
@@ -146,7 +144,6 @@ export const chatService = {
         status: body.status ?? 'sent',
       };
     } catch (error) {
-      console.error('Failed to send message:', error);
       throw error;
     }
   },
@@ -166,7 +163,6 @@ export const chatService = {
       
       return { status: body.status ?? 'closed' };
     } catch (error) {
-      console.error('Failed to close conversation:', error);
       throw error;
     }
   },

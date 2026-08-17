@@ -26,11 +26,16 @@ export type QueuedReportSubmission = {
   details: string;
   severity: string;
   selectedType: string;
+  incidentTypeLabel?: string;
   locationNote: string;
   latitude: number;
   longitude: number;
   icon: string;
   userId?: number;
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
+  mediaUrl?: string;
   queuedAt: string;
   lastError?: string;
   retryCount: number;
@@ -41,9 +46,11 @@ export function buildReportDescription(input: {
   details: string;
   severity: string;
   locationNote: string;
+  incidentTypeLabel?: string;
 }): string {
   return [
     input.summary.trim(),
+    input.incidentTypeLabel ? `Incident Type: ${input.incidentTypeLabel}` : "",
     input.details.trim() ? `Details: ${input.details.trim()}` : "",
     `Severity: ${input.severity}`,
     input.locationNote ? `Location: ${input.locationNote}` : "",
@@ -61,6 +68,12 @@ export function buildQueuedReportPayload(
     latitude: item.latitude,
     longitude: item.longitude,
     user_id: item.userId,
+    user_name: item.userName,
+    user_email: item.userEmail,
+    user_phone: item.userPhone,
+    user_location: item.locationNote,
+    severity: item.severity.toLowerCase() as 'low' | 'medium' | 'high',
+    media_url: item.mediaUrl,
   };
 }
 
@@ -201,6 +214,9 @@ export async function submitQueuedReport(
   const report = await emergencyReportService.submitReport(
     buildQueuedReportPayload(item),
   );
+  if (!report.conversation_id) {
+    throw new Error("The report was saved but no response conversation was created.");
+  }
 
   const statusLabel = formatReportStatusLabel(report.status);
   const threadId = await migratePendingThread(item.localId, report.id, {
@@ -211,6 +227,10 @@ export async function submitQueuedReport(
     lastMessage: item.summary.trim() || "Incident Report",
     updatedAt: report.created_at ?? new Date().toISOString(),
   });
+  await AsyncStorage.setItem(
+    `conversation-${threadId}`,
+    String(report.conversation_id),
+  );
 
   await removeQueuedReport(item.localId);
   return { threadId, localId: item.localId };

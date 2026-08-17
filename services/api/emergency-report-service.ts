@@ -12,10 +12,16 @@ export interface EmergencyReportData {
   longitude?: number;
   user_id?: number;
   media_url?: string;
+  user_name?: string;
+  user_email?: string;
+  user_phone?: string;
+  user_location?: string;
+  severity?: 'low' | 'medium' | 'high';
 }
 
 export interface EmergencyReportResponse {
   id: number;
+  report_id?: number;
   user_id: number;
   report_type: string;
   description: string;
@@ -25,9 +31,20 @@ export interface EmergencyReportResponse {
   media_url?: string;
   admin_notes?: string;
   created_at: string;
+  conversation_id?: number;
 }
 
-export type IncidentStatus = 'pending' | 'received' | 'in_progress' | 'resolved' | 'rejected';
+export type IncidentStatus =
+  | 'in_queue'
+  | 'pending'
+  | 'pending_status'
+  | 'received'
+  | 'dispatching'
+  | 'ongoing_dispatch'
+  | 'in_progress'
+  | 'resolved'
+  | 'completed'
+  | 'rejected';
 
 export interface UpdateStatusData {
   report_id: number;
@@ -44,7 +61,7 @@ export interface UpdateStatusResponse {
 type ApiBody = {
   success?: boolean;
   message?: string;
-  data?: EmergencyReportResponse;
+  data?: EmergencyReportResponse | { reports?: EmergencyReportResponse[] };
   reports?: EmergencyReportResponse[];
   id?: number;
   user_id?: number;
@@ -57,13 +74,16 @@ type ApiBody = {
   admin_notes?: string | null;
   created_at?: string;
   report_id?: number;
+  conversation_id?: number | string;
 };
 
 function parseReportRecord(
   body: ApiBody,
   fallback?: Partial<EmergencyReportData>,
 ): EmergencyReportResponse {
-  const source = body.data ?? body;
+  const source = (
+    body.data && !('reports' in body.data) ? body.data : body
+  ) as ApiBody;
 
   return {
     id: Number(source.id),
@@ -78,10 +98,14 @@ function parseReportRecord(
       source.longitude != null && source.longitude !== ''
         ? Number(source.longitude)
         : fallback?.longitude,
-    status: String(source.status ?? 'pending'),
+    status: String(source.status ?? 'in_queue'),
     media_url: source.media_url ?? undefined,
     admin_notes: source.admin_notes ?? undefined,
     created_at: String(source.created_at ?? new Date().toISOString()),
+    conversation_id:
+      source.conversation_id != null
+        ? Number(source.conversation_id)
+        : undefined,
   };
 }
 
@@ -105,6 +129,10 @@ export function mapIncidentTypeToReportType(
       return 'traffic';
     case 'flood':
       return 'natural_disaster';
+    case 'chemical':
+    case 'utility':
+    case 'animal':
+      return 'other';
     default:
       return 'other';
   }
@@ -115,15 +143,30 @@ export function buildReportThreadId(reportId: number): string {
 }
 
 export function formatReportStatusLabel(status: string): string {
-  switch (status.toLowerCase().replace(/\s+/g, "_")) {
+  const normalized = status.toLowerCase().replace(/[\s-]+/g, "_");
+  switch (normalized) {
+    case "open":
+    case "queue":
+    case "queued":
+    case "in_queue":
     case "pending":
+      return "In Queue";
+    case "pending_status":
+    case "transferred":
+    case "ers_pending":
       return "Pending";
     case "received":
       return "Received";
+    case "dispatching":
+      return "Dispatching";
+    case "ongoing_dispatch":
+      return "Ongoing Dispatch";
     case "in_progress":
       return "In Progress";
     case "resolved":
       return "Resolved";
+    case "completed":
+      return "Completed";
     case "rejected":
       return "Rejected";
     default:
@@ -132,15 +175,26 @@ export function formatReportStatusLabel(status: string): string {
 }
 
 export const INCIDENT_STATUS_OPTIONS: IncidentStatus[] = [
+  "in_queue",
   "pending",
+  "pending_status",
   "received",
+  "dispatching",
+  "ongoing_dispatch",
   "in_progress",
   "resolved",
+  "completed",
   "rejected",
 ];
 
 export function statusLabelToKey(label: string): IncidentStatus | null {
-  const normalized = label.toLowerCase().replace(/\s+/g, "_");
+  const normalized = label.toLowerCase().replace(/[\s-]+/g, "_");
+  if (["open", "queue", "queued"].includes(normalized)) {
+    return "in_queue";
+  }
+  if (["transferred", "ers_pending"].includes(normalized)) {
+    return "pending_status";
+  }
   return INCIDENT_STATUS_OPTIONS.includes(normalized as IncidentStatus)
     ? (normalized as IncidentStatus)
     : null;
@@ -157,36 +211,39 @@ export function parseReportIdFromThreadId(threadId: string): number | null {
 
 export function statusToTranslationKey(status: IncidentStatus): string {
   switch (status) {
+    case "in_queue":
+      return "status.inQueue";
     case "pending":
+    case "pending_status":
       return "status.pending";
     case "received":
       return "status.received";
+    case "dispatching":
+      return "status.dispatching";
+    case "ongoing_dispatch":
+      return "status.ongoingDispatch";
     case "in_progress":
       return "status.inProgress";
     case "resolved":
       return "status.resolved";
+    case "completed":
+      return "status.completed";
     case "rejected":
       return "status.rejected";
   }
 }
-
 export const emergencyReportService = {
   /**
    * Submit a new emergency report
    */
   async submitReport(data: EmergencyReportData): Promise<EmergencyReportResponse> {
-    try {
-      const response = await apiClient.post<ApiBody>(
-        '/reports/emergency_reports.php',
-        data,
-      );
-      const body = response.data;
-      assertSuccess(body, 'Failed to submit emergency report.');
-      return parseReportRecord(body, data);
-    } catch (error) {
-      console.error('Failed to submit emergency report:', error);
-      throw error;
-    }
+    const response = await apiClient.post<ApiBody>(
+      '/reports/emergency_reports.php',
+      data,
+    );
+    const body = response.data;
+    assertSuccess(body, 'Failed to submit emergency report.');
+    return parseReportRecord(body, data);
   },
 
   /**
@@ -201,8 +258,8 @@ export const emergencyReportService = {
       );
       const body = response.data;
       assertSuccess(body, 'Failed to fetch emergency reports.');
-      if (Array.isArray(body.data)) {
-        return body.data;
+      if (body.data && 'reports' in body.data && Array.isArray(body.data.reports)) {
+        return body.data.reports;
       }
       if (Array.isArray(body.reports)) {
         return body.reports;
@@ -225,7 +282,9 @@ export const emergencyReportService = {
       );
       const body = response.data;
       assertSuccess(body, 'Failed to update incident status.');
-      const source = body.data ?? body;
+      const source = (
+        body.data && !('reports' in body.data) ? body.data : body
+      ) as ApiBody;
 
       return {
         report_id: Number(source.report_id ?? data.report_id),
@@ -236,5 +295,41 @@ export const emergencyReportService = {
       console.error('Failed to update incident status:', error);
       throw error;
     }
+  },
+
+  async getReport(reportId: number): Promise<EmergencyReportResponse | null> {
+    const response = await apiClient.get<ApiBody>(
+      '/reports/emergency_reports.php',
+      { params: { report_id: reportId } },
+    );
+    const body = response.data;
+    assertSuccess(body, 'Failed to fetch emergency report status.');
+    const reports = body.data && 'reports' in body.data
+      ? body.data.reports
+      : body.reports;
+    return Array.isArray(reports) && reports.length ? reports[0] : null;
+  },
+
+  async getReportsByIds(reportIds: number[]): Promise<EmergencyReportResponse[]> {
+    const ids = Array.from(new Set(reportIds.filter((id) => Number.isFinite(id) && id > 0)));
+    if (!ids.length) return [];
+    const response = await apiClient.get<ApiBody>(
+      '/reports/emergency_reports.php',
+      { params: { report_ids: ids.join(',') } },
+    );
+    const body = response.data;
+    assertSuccess(body, 'Failed to synchronize guest reports.');
+    const reports = body.data && 'reports' in body.data
+      ? body.data.reports
+      : body.reports;
+    return Array.isArray(reports) ? reports : [];
+  },
+
+  async deleteCompletedReport(reportId: number, userId?: number): Promise<void> {
+    const response = await apiClient.delete<ApiBody>(
+      '/reports/emergency_reports.php',
+      { data: { report_id: reportId, user_id: userId } },
+    );
+    assertSuccess(response.data, 'Only completed report conversations can be deleted.');
   },
 };

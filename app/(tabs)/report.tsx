@@ -1,3 +1,4 @@
+import { LeafletMap } from "@/components/leaflet-map";
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { Colors, TealColors } from "@/constants/theme";
@@ -11,7 +12,22 @@ import {
     mapIncidentTypeToReportType,
 } from "@/services/api/emergency-report-service";
 import { mediaUploadService } from "@/services/api/media-upload-service";
-import { upsertConversationThread } from "@/utils/conversation-inbox";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
+import {
+  getQCBoundaryCoordinates,
+  isCoordinateInsideQCBoundary,
+} from "@/utils/qc-boundary";
+import {
+  ConversationThread,
+  deleteCompletedReportConversation,
+  formatRelativeTime,
+  getSystemAccent,
+  isReportCompleted,
+  loadConversationInbox,
+  resolveStatusColor,
+  threadToChatParams,
+  upsertConversationThread,
+} from "@/utils/conversation-inbox";
 import {
     buildReportDescription,
     enqueueReportSubmission,
@@ -26,14 +42,16 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    FlatList,
     Image,
     Modal,
     Platform,
     Pressable,
+    RefreshControl,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -41,13 +59,20 @@ import {
     TextInput,
     View
 } from "react-native";
-import MapView, { Marker } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LatLng = {
   latitude: number;
   longitude: number;
 };
+
+type LocationSuggestion = LatLng & {
+  id: string;
+  label: string;
+};
+
+const QUEZON_CITY_BOUNDARY = getQCBoundaryCoordinates();
+const isInsideQuezonCity = isCoordinateInsideQCBoundary;
 
 
 const formatCoordsDescription = (coords: LatLng) =>
@@ -75,21 +100,34 @@ export default function ReportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [summary, setSummary] = useState("");
+  const [reportStep, setReportStep] = useState<1 | 2 | 3>(1);
+  const [otherReportType, setOtherReportType] = useState("");
   const [details, setDetails] = useState("");
   const [severity, setSeverity] = useState<"Low" | "Medium" | "High">("Medium");
   const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [locationNote, setLocationNote] = useState("Detecting location...");
   const [showDetails, setShowDetails] = useState(false);
   const [confirmation, setConfirmation] = useState("");
+  const [reportOutcome, setReportOutcome] = useState<
+    "none" | "connected" | "queued" | "error"
+  >("none");
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [submissionPhase, setSubmissionPhase] = useState<"idle" | "sending" | "success" | "modal">("idle");
   const [locationCoords, setLocationCoords] = useState<LatLng>({
     latitude: 14.654459,
     longitude: 121.072997,
   });
-  const [manualLock, setManualLock] = useState(false);
+  const [locationSearch, setLocationSearch] = useState("");
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [locationSearchMessage, setLocationSearchMessage] = useState("");
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false);
+  const locationSearchRequestRef = useRef(0);
+  const locationResolveRequestRef = useRef(0);
+  const skipLocationSearchRef = useRef(false);
+  const locationSearchCacheRef = useRef(new Map<string, LocationSuggestion[]>());
   const [locationWarning, setLocationWarning] = useState("");
   const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRetryingQueue, setIsRetryingQueue] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -104,6 +142,11 @@ export default function ReportScreen() {
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedMediaUrl, setUploadedMediaUrl] = useState<string | null>(null);
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [reportThreads, setReportThreads] = useState<ConversationThread[]>([]);
+  const [inboxLoading, setInboxLoading] = useState(true);
+  const [inboxRefreshing, setInboxRefreshing] = useState(false);
 
   const background = isDarkMode
     ? Colors.dark.background
@@ -113,47 +156,158 @@ export default function ReportScreen() {
   const accent = TealColors.primary;
   const textColor = isDarkMode ? Colors.dark.text : Colors.light.text;
   const tabBarHeight = (Platform.OS === "ios" ? 80 : 60) + insets.bottom;
+  const chatConnectionLabel = isSubmitting
+    ? "Submitting report..."
+    : reportOutcome === "connected"
+      ? "Connected to response thread"
+      : reportOutcome === "queued"
+        ? "Saved locally"
+        : reportOutcome === "error"
+          ? "Not connected"
+          : "Ready to send";
+
+  const loadReportThreads = useCallback(async (silent = false) => {
+    if (!silent) setInboxLoading(true);
+    try {
+      const threads = await loadConversationInbox({ userId: userProfile?.id });
+      setReportThreads(threads);
+    } finally {
+      if (!silent) setInboxLoading(false);
+    }
+  }, [userProfile?.id]);
+
+  const openReportThread = (thread: ConversationThread) => {
+    router.push({
+      pathname: "/chat/[id]",
+      params: threadToChatParams(thread),
+    } as never);
+  };
+
+  const openGeneralChat = () => {
+    setNewChatOpen(false);
+    router.push({
+      pathname: "/chat/[id]",
+      params: {
+        id: "general",
+        title: encodeURIComponent("General Support"),
+        category: "General",
+        status: "Active",
+        icon: "robot",
+      },
+    } as never);
+  };
+
+  const openNewReport = () => {
+    setNewChatOpen(false);
+    setShowReportForm(true);
+  };
+
+  const confirmDeleteReport = (thread: ConversationThread) => {
+    if (!isReportCompleted(thread.status)) return;
+    Alert.alert(
+      "Delete completed report?",
+      "This removes the conversation from your report list. The completed emergency record remains in the audit trail.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void (async () => {
+            try {
+              await deleteCompletedReportConversation(thread, userProfile?.id);
+              await loadReportThreads(true);
+            } catch (error) {
+              Alert.alert(
+                "Unable to delete report",
+                error instanceof Error ? error.message : "Please try again.",
+              );
+            }
+          })(),
+        },
+      ],
+    );
+  };
 
   const refreshAddress = useCallback(async (coords: LatLng) => {
     try {
       const addresses = await Location.reverseGeocodeAsync(coords);
       if (addresses.length) {
-        setLocationNote(formatAddress(addresses[0]));
-        setLocationWarning("");
-        return;
+        const address = formatAddress(addresses[0]);
+        if (address) {
+          return address;
+        }
       }
     } catch {
-      setLocationWarning("Precise address unavailable");
+      // Coordinates remain usable when the device geocoder is unavailable.
     }
 
-    setLocationNote(formatCoordsDescription(coords));
+    return formatCoordsDescription(coords);
   }, []);
 
-  const applyManualCoords = async (coords: LatLng) => {
+  const applyManualCoords = async (coords: LatLng, knownAddress?: string) => {
+    const requestId = ++locationResolveRequestRef.current;
     setLocationCoords(coords);
-    await refreshAddress(coords);
+    const address = knownAddress || (await refreshAddress(coords));
+    if (requestId !== locationResolveRequestRef.current) return;
+
+    setLocationNote(address);
+    skipLocationSearchRef.current = true;
+    setLocationSearch(address);
+    setLocationSuggestions([]);
+    setLocationSearchMessage("");
+    setLocationWarning(
+      isInsideQuezonCity(coords) ? "" : "Choose a location inside Quezon City.",
+    );
   };
 
   const incidentTypes = [
-    { id: "fire", label: t("type.fire"), icon: "flame", color: "#f0543c" },
     {
       id: "medical",
-      label: t("type.medical"),
+      label: "Medical Needs",
       icon: "bandage",
       color: "#8f44fd",
     },
-    { id: "crime", label: t("type.crime"), icon: "shield", color: "#e77a3e" },
+    { id: "fire", label: "Fire Hazards", icon: "flame", color: "#f0543c" },
+    {
+      id: "chemical",
+      label: "Chemical / Hazardous Materials",
+      icon: "biohazard",
+      color: "#eab308",
+    },
     {
       id: "accident",
-      label: t("type.accident"),
+      label: "Traffic & Vehicular Incidents",
       icon: "car-sport",
       color: "#2d98da",
     },
-    { id: "flood", label: t("type.flood"), icon: "drop", color: "#3a86ff" },
+    { id: "flood", label: "Floods & Natural Hazards", icon: "drop", color: "#3a86ff" },
+    { id: "crime", label: "Crime & Public Safety", icon: "shield", color: "#e77a3e" },
+    {
+      id: "utility",
+      label: "Utility & Infrastructure",
+      icon: "bolt.fill",
+      color: "#f59e0b",
+    },
+    {
+      id: "animal",
+      label: "Animal Rescue / Animal Concern",
+      icon: "pawprint",
+      color: "#16a34a",
+    },
+    {
+      id: "other",
+      label: "Other Report",
+      icon: "megaphone",
+      color: "#64748b",
+    },
   ];
   const [selectedType, setSelectedType] = useState(incidentTypes[0].id);
   const selectedTypeMeta =
     incidentTypes.find((t) => t.id === selectedType) ?? incidentTypes[0];
+  const resolvedIncidentTypeLabel =
+    selectedType === "other" && otherReportType.trim()
+      ? `Other Report: ${otherReportType.trim()}`
+      : selectedTypeMeta.label;
   const quickPresets = [
     { label: t("report.quickFire"), type: "fire", severity: "High" },
     { label: t("report.quickMedical"), type: "medical", severity: "High" },
@@ -162,12 +316,8 @@ export default function ReportScreen() {
   const handlePreset = (preset: (typeof quickPresets)[number]) => {
     setSelectedType(preset.type);
     setSeverity(preset.severity as "Low" | "Medium" | "High");
-    setSummary(`${preset.label} – ${t("status.pending")}`);
+    setSummary(`${preset.label} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ ${t("status.pending")}`);
     setDetails(t("report.quickNote"));
-  };
-
-  const handleLocationToggle = () => {
-    setManualLock((prev) => !prev);
   };
 
   const handleRefreshLocation = async () => {
@@ -178,14 +328,25 @@ export default function ReportScreen() {
         setLocationWarning("Location permission denied");
         return;
       }
-      const location = await Location.getCurrentPositionAsync({});
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const coords = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       };
+      const requestId = ++locationResolveRequestRef.current;
       setLocationCoords(coords);
-      await refreshAddress(coords);
-      setLocationWarning("");
+      const address = await refreshAddress(coords);
+      if (requestId !== locationResolveRequestRef.current) return;
+      setLocationNote(address);
+      skipLocationSearchRef.current = true;
+      setLocationSearch(address);
+      setLocationSuggestions([]);
+      setLocationSearchMessage("");
+      setLocationWarning(
+        isInsideQuezonCity(coords)
+          ? ""
+          : "Reports are currently accepted only for locations inside Quezon City.",
+      );
     } catch {
       setLocationWarning("Couldn't refresh location");
     } finally {
@@ -193,34 +354,138 @@ export default function ReportScreen() {
     }
   };
 
+  useEffect(() => {
+    const query = locationSearch.trim();
+    if (!showReportForm || reportStep !== 2) return;
+
+    if (skipLocationSearchRef.current) {
+      skipLocationSearchRef.current = false;
+      locationSearchRequestRef.current += 1;
+      setIsSearchingLocation(false);
+      return;
+    }
+
+    const requestId = ++locationSearchRequestRef.current;
+    if (query.length < 3) {
+      setLocationSuggestions([]);
+      setLocationSearchMessage("");
+      setIsSearchingLocation(false);
+      return;
+    }
+
+    const cached = locationSearchCacheRef.current.get(query.toLowerCase());
+    if (cached) {
+      setLocationSuggestions(cached);
+      setLocationSearchMessage(
+        cached.length ? "" : "No matching places found inside Quezon City.",
+      );
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        setIsSearchingLocation(true);
+        setLocationSearchMessage("");
+        try {
+          let permission = await Location.getForegroundPermissionsAsync();
+          if (permission.status !== "granted" && permission.canAskAgain) {
+            permission = await Location.requestForegroundPermissionsAsync();
+          }
+          if (permission.status !== "granted") {
+            throw new Error("Allow location access to search for an address.");
+          }
+
+          const geocoded = await Location.geocodeAsync(
+            `${query}, Quezon City, Metro Manila, Philippines`,
+          );
+          const unique = new Map<string, LatLng>();
+          geocoded.forEach((result) => {
+            const coords = {
+              latitude: result.latitude,
+              longitude: result.longitude,
+            };
+            if (!isInsideQuezonCity(coords)) return;
+            unique.set(`${coords.latitude.toFixed(6)}:${coords.longitude.toFixed(6)}`, coords);
+          });
+
+          const suggestions = await Promise.all(
+            Array.from(unique.values()).slice(0, 5).map(async (coords, index) => {
+              let label = query;
+              try {
+                const addresses = await Location.reverseGeocodeAsync(coords);
+                if (addresses.length) label = formatAddress(addresses[0]) || query;
+              } catch {
+                // Keep the typed place name when reverse geocoding is unavailable.
+              }
+              return {
+                ...coords,
+                id: `${coords.latitude}-${coords.longitude}-${index}`,
+                label,
+              };
+            }),
+          );
+
+          if (requestId !== locationSearchRequestRef.current) return;
+          locationSearchCacheRef.current.set(query.toLowerCase(), suggestions);
+          setLocationSuggestions(suggestions);
+          setLocationSearchMessage(
+            suggestions.length ? "" : "No matching places found inside Quezon City.",
+          );
+        } catch (error) {
+          if (requestId !== locationSearchRequestRef.current) return;
+          setLocationSuggestions([]);
+          setLocationSearchMessage(
+            error instanceof Error ? error.message : "Address search is unavailable right now.",
+          );
+        } finally {
+          if (requestId === locationSearchRequestRef.current) {
+            setIsSearchingLocation(false);
+          }
+        }
+      })();
+    }, 700);
+
+    return () => clearTimeout(timer);
+  }, [locationSearch, reportStep, showReportForm]);
+
+  const selectLocationSuggestion = (suggestion: LocationSuggestion) => {
+    skipLocationSearchRef.current = true;
+    setLocationSearch(suggestion.label);
+    setLocationSuggestions([]);
+    setLocationSearchMessage("");
+    void applyManualCoords(suggestion, suggestion.label);
+  };
+
   const handleMediaPicker = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please grant camera roll permissions to attach media.');
+        Alert.alert('Permission needed', 'Please grant photo library permission to attach a picture.');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        // Check file size - limit videos to 50MB
-        const maxSize = asset.type?.startsWith('video') ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
+        const isImage = asset.type === 'image' || asset.mimeType?.startsWith('image/');
+        if (!isImage) {
+          Alert.alert('Pictures only', 'Incident evidence must be an image, not a video.');
+          return;
+        }
+        const maxSize = 10 * 1024 * 1024;
         if (asset.fileSize && !mediaUploadService.validateFileSize(asset.fileSize, maxSize)) {
-          const maxSizeMB = asset.type?.startsWith('video') ? 50 : 10;
-          Alert.alert('File too large', `Please select a file smaller than ${maxSizeMB}MB.`);
+          Alert.alert('File too large', 'Please select a picture smaller than 10MB.');
           return;
         }
         setSelectedMedia(asset);
-        // Reset uploaded URL when new media is selected
         setUploadedMediaUrl(null);
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to pick media. Please try again.');
+    } catch {
+      Alert.alert('Error', 'Failed to pick a picture. Please try again.');
     }
   };
 
@@ -245,7 +510,9 @@ export default function ReportScreen() {
       status: input.statusLabel,
     };
 
-    setConfirmation(t("report.confirmationOk"));
+    const successMessage = "Incident Report Submitted successfully! We have opened a live response thread. You can chat here in real time.";
+    setConfirmation(successMessage);
+    setReportOutcome("connected");
     setShowDetails(false);
 
     try {
@@ -255,7 +522,7 @@ export default function ReportScreen() {
         category: "Alert",
         status: input.statusLabel,
         icon: input.icon,
-        lastMessage: t("report.confirmationOk"),
+        lastMessage: successMessage,
         lastMessageFrom: "system",
         updatedAt: input.submittedAt,
       });
@@ -268,9 +535,14 @@ export default function ReportScreen() {
       JSON.stringify(chatParams),
     );
     setLastIncidentChat(chatParams);
+    await loadReportThreads(true);
 
-    // Show success modal instead of navigating to chat
-    setSuccessModalVisible(true);
+    setSubmissionPhase("idle");
+    setSuccessModalVisible(false);
+    router.push({
+      pathname: "/chat/[id]",
+      params: chatParams,
+    } as never);
   };
 
   const openPendingReportChat = async (
@@ -292,6 +564,7 @@ export default function ReportScreen() {
     );
     setLastIncidentChat(chatParams);
     setConfirmation(queuedMessage);
+    setReportOutcome("queued");
     setShowDetails(false);
     router.push({
       pathname: "/chat/[id]",
@@ -344,9 +617,15 @@ export default function ReportScreen() {
 
   const handleSubmit = async () => {
     if (!summary.trim() || isSubmitting) return;
+    if (!isInsideQuezonCity(locationCoords)) {
+      setLocationWarning("Move the pin to an incident location inside Quezon City.");
+      setReportStep(2);
+      return;
+    }
 
     setIsSubmitting(true);
     setConfirmation("");
+    setReportOutcome("none");
     setSubmissionPhase("sending");
 
     // Upload media if selected
@@ -362,16 +641,17 @@ export default function ReportScreen() {
             name: selectedMedia.fileName || `media_${Date.now()}.jpg`,
             size: selectedMedia.fileSize,
           },
+          imageOnly: true,
         };
         const response = await mediaUploadService.uploadMedia(uploadData, (progress: any) => {
           setUploadProgress(progress.percentage);
         });
         mediaUrl = response.file_url;
         setUploadedMediaUrl(mediaUrl);
-      } catch (error) {
+      } catch {
         setSubmissionPhase("idle");
         setIsUploadingMedia(false);
-        Alert.alert('Upload failed', 'Failed to upload media. Please try again or remove the attachment.');
+        Alert.alert('Upload failed', 'Failed to upload the picture. Please try again or remove it.');
         setIsSubmitting(false);
         return;
       } finally {
@@ -393,24 +673,32 @@ export default function ReportScreen() {
           details,
           severity,
           locationNote,
+          incidentTypeLabel: resolvedIncidentTypeLabel,
         }),
         latitude: locationCoords.latitude,
         longitude: locationCoords.longitude,
         user_id: userProfile?.id,
         media_url: mediaUrl || undefined,
+        user_name: userProfile?.name || "Guest User",
+        user_email: userProfile?.email || undefined,
+        user_phone: userProfile?.phone || undefined,
+        user_location: locationNote,
+        severity: severity.toLowerCase() as "low" | "medium" | "high",
       });
 
-      // Show success checkmark animation
-      setSubmissionPhase("success");
-      
-      // Wait for checkmark animation, then show modal
-      setTimeout(() => {
-        setSubmissionPhase("modal");
-        setSuccessModalVisible(true);
-      }, 1500);
+      if (!report.conversation_id) {
+        throw new Error("The report was saved but no response conversation was created.");
+      }
 
+      const reportThreadId = buildReportThreadId(report.id);
+      await AsyncStorage.setItem(
+        `conversation-${reportThreadId}`,
+        String(report.conversation_id),
+      );
+
+      void playAlertaraActionSound("reportSend");
       await finalizeSuccessfulReport({
-        threadId: buildReportThreadId(report.id),
+        threadId: reportThreadId,
         icon,
         statusLabel: formatReportStatusLabel(report.status),
         submittedAt: report.created_at ?? new Date().toISOString(),
@@ -423,15 +711,21 @@ export default function ReportScreen() {
           details,
           severity,
           selectedType,
+          incidentTypeLabel: resolvedIncidentTypeLabel,
           locationNote,
           latitude: locationCoords.latitude,
           longitude: locationCoords.longitude,
           icon,
           userId: userProfile?.id,
+          userName: userProfile?.name || "Guest User",
+          userEmail: userProfile?.email || undefined,
+          userPhone: userProfile?.phone || undefined,
+          mediaUrl: mediaUrl || undefined,
           lastError:
             error instanceof Error ? error.message : t("report.confirmationFail"),
         });
 
+        void playAlertaraActionSound("reportSend");
         await queuedReportToInboxThread(queued);
         await refreshPendingCount();
         await openPendingReportChat(
@@ -443,6 +737,8 @@ export default function ReportScreen() {
           ),
         );
       } else {
+        setLastIncidentChat(null);
+        setReportOutcome("error");
         setConfirmation(
           error instanceof Error && error.message
             ? error.message
@@ -463,7 +759,18 @@ export default function ReportScreen() {
     }, [handleRetryQueue, refreshPendingCount]),
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadReportThreads();
+      const timer = setInterval(() => {
+        if (!showReportForm) void loadReportThreads(true);
+      }, 5000);
+      return () => clearInterval(timer);
+    }, [loadReportThreads, showReportForm]),
+  );
+
   useEffect(() => {
+    if (!showReportForm) return;
     let subscribed = true;
     (async () => {
       try {
@@ -482,20 +789,208 @@ export default function ReportScreen() {
         }
         return;
       }
-      const location = await Location.getCurrentPositionAsync({});
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       if (subscribed) {
         const coords = {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         };
+        const requestId = ++locationResolveRequestRef.current;
         setLocationCoords(coords);
-        await refreshAddress(coords);
+        const address = await refreshAddress(coords);
+        if (requestId !== locationResolveRequestRef.current) return;
+        setLocationNote(address);
+        skipLocationSearchRef.current = true;
+        setLocationSearch(address);
+        if (!isInsideQuezonCity(coords)) {
+          setLocationWarning("Your current GPS is outside Quezon City. Move the pin to the incident location.");
+        } else {
+          setLocationWarning("");
+        }
       }
     })();
     return () => {
       subscribed = false;
     };
-  }, [refreshAddress]);
+  }, [refreshAddress, showReportForm]);
+
+  if (!showReportForm) {
+    const mutedColor = isDarkMode ? "#94a3b8" : "#64748b";
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
+        <View style={[styles.reportsHeader, { paddingTop: insets.top + 12 }]}>
+          <View>
+            <ThemedText type="title" style={[styles.reportsTitle, { color: textColor }]}>
+              Messages
+            </ThemedText>
+            <ThemedText style={[styles.reportsSubtitle, { color: mutedColor }]}>
+              Follow reports, messages, and response-team updates
+            </ThemedText>
+          </View>
+        </View>
+
+        {inboxLoading ? (
+          <ActivityIndicator style={styles.reportsLoader} color={accent} />
+        ) : (
+          <FlatList
+            data={reportThreads}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[
+              styles.reportList,
+              reportThreads.length === 0 && styles.reportListEmpty,
+              { paddingBottom: tabBarHeight + 90 },
+            ]}
+            refreshControl={
+              <RefreshControl
+                refreshing={inboxRefreshing}
+                onRefresh={() => void (async () => {
+                  setInboxRefreshing(true);
+                  await loadReportThreads(true);
+                  setInboxRefreshing(false);
+                })()}
+                tintColor={accent}
+                colors={[accent]}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.reportEmpty}>
+                <View style={[styles.reportEmptyIcon, { backgroundColor: `${accent}18` }]}>
+                  <IconSymbol name="bubble.left.and.bubble.right" size={34} color={accent} />
+                </View>
+                <ThemedText style={[styles.reportEmptyTitle, { color: textColor }]}>
+                  No messages yet
+                </ThemedText>
+                <ThemedText style={[styles.reportEmptyText, { color: mutedColor }]}>
+                  Reports, inquiries, and response-team updates will appear here.
+                </ThemedText>
+              </View>
+            }
+            ItemSeparatorComponent={() => (
+              <View style={[styles.reportSeparator, { backgroundColor: borderColor }]} />
+            )}
+            renderItem={({ item }) => {
+              const statusColor = resolveStatusColor(item.status);
+              const systemAccent = getSystemAccent(item.systemId);
+              const completed = isReportCompleted(item.status);
+              return (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.reportRow,
+                    {
+                      backgroundColor: pressed
+                        ? (isDarkMode ? "#1d2a30" : "#f3f7f8")
+                        : cardBackground,
+                    },
+                  ]}
+                  onPress={() => openReportThread(item)}
+                >
+                  <View style={[styles.reportAvatar, { borderColor: systemAccent, backgroundColor: `${systemAccent}18` }]}>
+                    <IconSymbol name={item.icon ?? "exclamationmark.triangle"} size={22} color={systemAccent} />
+                  </View>
+                  <View style={styles.reportRowBody}>
+                    <View style={styles.reportRowTop}>
+                      <ThemedText numberOfLines={1} style={[styles.reportRowTitle, { color: textColor }]}>
+                        {item.title}
+                      </ThemedText>
+                      <Text style={[styles.reportRowTime, { color: mutedColor }]}>
+                        {formatRelativeTime(item.updatedAt)}
+                      </Text>
+                    </View>
+                    <View style={styles.reportMeta}>
+                      <View style={[styles.reportStatus, { borderColor: statusColor, backgroundColor: `${statusColor}18` }]}>
+                        <Text style={[styles.reportStatusText, { color: statusColor }]}>
+                          {formatReportStatusLabel(item.status ?? "in_queue")}
+                        </Text>
+                      </View>
+                      <Text style={[styles.reportSystem, { color: mutedColor }]}>
+                        {item.systemLabel}
+                      </Text>
+                    </View>
+                    <ThemedText numberOfLines={2} style={[styles.reportPreview, { color: mutedColor }]}>
+                      {item.lastMessage || "Open this report to view the conversation."}
+                    </ThemedText>
+                  </View>
+                  {completed ? (
+                    <Pressable
+                      style={styles.reportDelete}
+                      onPress={() => confirmDeleteReport(item)}
+                      accessibilityLabel="Delete completed report"
+                    >
+                      <IconSymbol name="trash" size={18} color="#ef4444" />
+                    </Pressable>
+                  ) : null}
+                </Pressable>
+              );
+            }}
+          />
+        )}
+
+
+      
+        <View style={[styles.newReportFabWrap, { bottom: tabBarHeight + 10 }]}>
+          <Pressable
+            style={[styles.newReportFab, { backgroundColor: accent }]}
+            onPress={() => setNewChatOpen(true)}
+            accessibilityLabel="Create message or report"
+          >
+            <IconSymbol name="plus" size={28} color="#fff" />
+          </Pressable>
+        </View>
+
+        <Modal
+          visible={newChatOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setNewChatOpen(false)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setNewChatOpen(false)}
+          >
+            <Pressable
+              style={[
+                styles.modalSheet,
+                { backgroundColor: cardBackground, borderColor },
+              ]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <ThemedText style={[styles.modalTitle, { color: textColor }]}>New conversation</ThemedText>
+
+              <Pressable
+                style={[styles.modalOption, { borderColor }]}
+                onPress={openGeneralChat}
+              >
+                <View style={[styles.modalIcon, { backgroundColor: `${getSystemAccent("general")}20` }]}>
+                  <IconSymbol name="robot" size={18} color={getSystemAccent("general")} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.modalOptionTitle, { color: textColor }]}>General inquiry</ThemedText>
+                  <ThemedText style={[styles.modalOptionDesc, { color: mutedColor }]}>Ask questions and get safety guidance</ThemedText>
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={[styles.modalOption, { borderColor }]}
+                onPress={openNewReport}
+              >
+                <View style={[styles.modalIcon, { backgroundColor: `${getSystemAccent("ecs")}20` }]}>
+                  <IconSymbol name="exclamationmark.triangle" size={18} color={getSystemAccent("ecs")} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.modalOptionTitle, { color: textColor }]}>Report an incident</ThemedText>
+                  <ThemedText style={[styles.modalOptionDesc, { color: mutedColor }]}>Submit a report and open a follow-up thread</ThemedText>
+                </View>
+              </Pressable>
+
+              <Pressable style={styles.modalCancel} onPress={() => setNewChatOpen(false)}>
+                <Text style={{ color: TealColors.primary, fontWeight: "800" }}>Cancel</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: background }]}>
@@ -508,6 +1003,7 @@ export default function ReportScreen() {
           { paddingBottom: tabBarHeight + 56 + 6 },
         ]}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!isMapInteracting}
       >
         {pendingCount > 0 ? (
           <Pressable
@@ -557,51 +1053,52 @@ export default function ReportScreen() {
           </Pressable>
         ) : null}
 
-        <View
-          style={[
-            styles.heroCard,
-            { backgroundColor: isDarkMode ? "#0f172a" : "#e8f5f2" },
-          ]}
-        >
-          <View style={styles.heroHeader}>
-            <IconSymbol
-              size={28}
-              name="exclamationmark.triangle"
-              color={TealColors.primary}
-            />
-            <ThemedText style={styles.heroKicker}>
-              Step 1 of 3 · {t("report.title")}
-            </ThemedText>
-          </View>
-          <ThemedText type="title" style={styles.title}>
-            {t("report.title")}
-          </ThemedText>
-          <ThemedText style={styles.subtitle}>
-            {t("report.subtitle")}
-          </ThemedText>
-          <Pressable
-            style={[
-              styles.historyButton,
-              {
-                borderColor,
-                backgroundColor: isDarkMode ? "#102026" : "#ffffff",
-              },
-            ]}
-            onPress={() => router.push("/(tabs)/messages" as never)}
-          >
-            <IconSymbol
-              name="clock.arrow.circlepath"
-              size={16}
-              color={TealColors.primary}
-            />
-            <Text
-              style={[styles.historyButtonText, { color: TealColors.primary }]}
+        <View style={[styles.chatShell, { backgroundColor: cardBackground, borderColor }]}>
+          <View style={[styles.chatHeader, { borderBottomColor: borderColor }]}>
+            <View style={styles.chatHeaderIdentity}>
+              <View style={styles.chatShield}>
+                <IconSymbol name="shield.fill" size={25} color="#ffffff" />
+                <View style={styles.chatOnlineDot} />
+              </View>
+              <View style={styles.chatHeaderCopy}>
+                <ThemedText style={[styles.chatHeaderTitle, { color: textColor }]}>Send Report</ThemedText>
+                <Text style={styles.chatHeaderStatus}>{chatConnectionLabel}</Text>
+              </View>
+            </View>
+            <Pressable
+              style={styles.chatCloseButton}
+              onPress={() => {
+                setShowReportForm(false);
+                setReportStep(1);
+                setOtherReportType("");
+                setConfirmation("");
+              }}
+              accessibilityLabel="Close report chat"
             >
-              {t("report.historyButton")}
-            </Text>
-          </Pressable>
-        </View>
-        <View style={styles.quickRow}>
+              <IconSymbol name="xmark" size={21} color={isDarkMode ? "#cbd5e1" : "#475569"} />
+            </Pressable>
+          </View>
+          <View style={styles.chatConversation}>
+            <View style={[styles.assistantBubble, { backgroundColor: isDarkMode ? "#18242f" : "#f1f5f9" }]}>
+              <ThemedText style={[styles.chatBubbleText, { color: textColor }]}>
+                Hello! I am your Emergency Report Assistant. What would you like to report?
+              </ThemedText>
+            </View>
+            {reportStep >= 2 ? (
+              <View style={styles.userBubbleRow}>
+                <View style={styles.userBubble}>
+                  <Text style={styles.userBubbleText}>{resolvedIncidentTypeLabel}</Text>
+                </View>
+              </View>
+            ) : null}
+            {reportStep >= 2 ? (
+              <View style={[styles.assistantBubble, { backgroundColor: isDarkMode ? "#18242f" : "#f1f5f9" }]}>
+                <ThemedText style={[styles.chatBubbleText, { color: textColor }]}>
+                  Got it. Where did the incident occur? Please enter the location or landmark below:
+                </ThemedText>
+              </View>
+            ) : null}
+        <View style={[styles.quickRow, { display: "none" }]}>
           {quickPresets.map((preset) => (
             <Pressable
               key={preset.label}
@@ -618,59 +1115,63 @@ export default function ReportScreen() {
             </Pressable>
           ))}
         </View>
-        <View
-          style={[
-            styles.sectionCard,
-            { backgroundColor: cardBackground, borderColor },
-          ]}
-        >
-          <ThemedText style={styles.sectionTitle}>
-            {t("report.incidentType")}
-          </ThemedText>
-          <Pressable
-            style={[
-              styles.typeSelect,
-              {
-                borderColor,
-                backgroundColor: isDarkMode ? "#0f1b20" : "#f8fafc",
-              },
-            ]}
-            onPress={() => setTypePickerOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel={t("report.incidentType")}
-          >
-            <View style={styles.typeSelectLeft}>
-              <View
-                style={[
-                  styles.typeIconBubble,
-                  {
-                    backgroundColor: `${selectedTypeMeta.color}22`,
-                    borderColor: `${selectedTypeMeta.color}55`,
-                  },
-                ]}
-              >
-                <IconSymbol
-                  name={selectedTypeMeta.icon}
-                  size={18}
-                  color={selectedTypeMeta.color}
-                />
+            {reportStep === 1 ? (
+              <View style={[styles.chatOptionsPanel, { backgroundColor: isDarkMode ? "#111b25" : "#f8fafc", borderColor }]}>
+                {incidentTypes.map((type) => (
+                  <Pressable
+                    key={type.id}
+                    style={[styles.chatOptionButton, { backgroundColor: isDarkMode ? "#0b1320" : "#ffffff", borderColor }]}
+                    onPress={() => {
+                      setSelectedType(type.id);
+                      setOtherReportType("");
+                      setSummary("");
+                      setDetails("");
+                      setConfirmation("");
+                      if (type.id !== "other") setReportStep(2);
+                    }}
+                  >
+                    <IconSymbol name={type.icon} size={23} color={type.color} />
+                    <Text style={[styles.chatOptionText, { color: textColor }]}>{type.label}</Text>
+                  </Pressable>
+                ))}
+                {selectedType === "other" ? (
+                  <View style={[styles.otherReportPanel, { borderColor }]}>
+                    <Text style={[styles.otherReportLabel, { color: textColor }]}>Identify the report</Text>
+                    <TextInput
+                      value={otherReportType}
+                      onChangeText={setOtherReportType}
+                      placeholder="Identify the report"
+                      placeholderTextColor={isDarkMode ? "#64748b" : "#94a3b8"}
+                      maxLength={120}
+                      returnKeyType="next"
+                      style={[
+                        styles.otherReportInput,
+                        {
+                          color: textColor,
+                          borderColor,
+                          backgroundColor: isDarkMode ? "#0b1320" : "#ffffff",
+                        },
+                      ]}
+                      onSubmitEditing={() => {
+                        if (otherReportType.trim()) setReportStep(2);
+                      }}
+                    />
+                    <Pressable
+                      disabled={!otherReportType.trim()}
+                      style={[
+                        styles.otherReportContinue,
+                        { backgroundColor: TealColors.primary },
+                        !otherReportType.trim() && styles.disabledButton,
+                      ]}
+                      onPress={() => setReportStep(2)}
+                    >
+                      <Text style={styles.stepButtonText}>Continue</Text>
+                      <IconSymbol name="chevron.right" size={18} color="#ffffff" />
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
-              <ThemedText
-                style={[styles.typeSelectLabel, { color: textColor }]}
-              >
-                {selectedTypeMeta.label}
-              </ThemedText>
-            </View>
-            <IconSymbol
-              name="chevron.down"
-              size={16}
-              color={isDarkMode ? "#cbd5e1" : "#475569"}
-            />
-          </Pressable>
-          <Text style={styles.helperText}>
-            {t("report.typeHelp", "Tap to change the incident type.")}
-          </Text>
-        </View>
+            ) : null}
 
         <Modal
           visible={typePickerOpen}
@@ -748,82 +1249,143 @@ export default function ReportScreen() {
           style={[
             styles.sectionCard,
             { backgroundColor: cardBackground, borderColor },
+            { display: reportStep === 2 ? "flex" : "none" },
           ]}
         >
-          <ThemedText style={styles.sectionTitle}>
-            {t("report.location")}
-          </ThemedText>
+          <ThemedText style={styles.sectionTitle}>Exact Incident Location</ThemedText>
+          <Text style={[styles.locationIntro, { color: isDarkMode ? "#9aa9af" : "#66767d" }]}>
+            Search for an address, use your current location, or move the map pin.
+          </Text>
+
+          <View
+            style={[
+              styles.locationSearchBox,
+              {
+                borderColor,
+                backgroundColor: isDarkMode ? "#101a1f" : "#f7fafb",
+              },
+            ]}
+          >
+            <IconSymbol name="search" size={18} color={accent} />
+            <TextInput
+              style={[styles.locationSearchInput, { color: textColor }]}
+              value={locationSearch}
+              onChangeText={(value) => {
+                setLocationSearch(value);
+                setLocationSearchMessage("");
+              }}
+              placeholder="Search street, barangay, or landmark in Quezon City"
+              placeholderTextColor={isDarkMode ? "#718087" : "#7b858a"}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {isSearchingLocation ? (
+              <ActivityIndicator size="small" color={accent} />
+            ) : locationSearch ? (
+              <Pressable
+                accessibilityLabel="Clear location search"
+                hitSlop={10}
+                onPress={() => {
+                  locationSearchRequestRef.current += 1;
+                  setLocationSearch("");
+                  setLocationSuggestions([]);
+                  setLocationSearchMessage("");
+                }}
+              >
+                <IconSymbol name="xmark" size={18} color={isDarkMode ? "#94a3b8" : "#64748b"} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          {locationSuggestions.length ? (
+            <View style={[styles.locationSuggestions, { borderColor }]}>
+              {locationSuggestions.map((suggestion) => (
+                <Pressable
+                  key={suggestion.id}
+                  style={[styles.locationSuggestion, { borderColor }]}
+                  onPress={() => selectLocationSuggestion(suggestion)}
+                >
+                  <IconSymbol name="location" size={17} color={accent} />
+                  <Text
+                    numberOfLines={2}
+                    style={[styles.locationSuggestionText, { color: textColor }]}
+                  >
+                    {suggestion.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {locationSearchMessage ? (
+            <Text style={[styles.locationSearchMessage, { color: isDarkMode ? "#f0b4b4" : "#b42318" }]}>
+              {locationSearchMessage}
+            </Text>
+          ) : null}
+
           <View style={styles.locationRow}>
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.locationLabel}>
-                {t("report.currentLocation")}
-              </ThemedText>
-              <ThemedText style={styles.locationValue}>
-                {locationNote}
-              </ThemedText>
+            <View style={styles.locationAddress}>
+              <ThemedText style={styles.locationLabel}>Selected location</ThemedText>
+              <ThemedText style={styles.locationValue}>{locationNote}</ThemedText>
             </View>
             <Pressable
               style={[styles.refreshChip, { borderColor: accent }]}
               onPress={handleRefreshLocation}
+              disabled={isRefreshingLocation}
             >
               {isRefreshingLocation ? (
                 <ActivityIndicator size="small" color={accent} />
               ) : (
                 <IconSymbol name="location" size={16} color={accent} />
               )}
-              <Text style={[styles.refreshText, { color: accent }]}>
-                {t("report.refresh")}
-              </Text>
+              <Text style={[styles.refreshText, { color: accent }]}>Use Current</Text>
             </Pressable>
           </View>
-          <MapView
-            style={styles.mapPreview}
-            region={{
-              latitude: locationCoords.latitude,
-              longitude: locationCoords.longitude,
-              latitudeDelta: 0.004,
-              longitudeDelta: 0.004,
-            }}
-            showsUserLocation
-            onPress={(event) => {
-              if (manualLock) {
-                const coords = event.nativeEvent.coordinate;
-                void applyManualCoords(coords);
-              }
-            }}
-          >
-            <Marker
-              coordinate={locationCoords}
-              pinColor={accent}
-              draggable={manualLock}
-              onDragEnd={(event) => {
-                const coords = event.nativeEvent.coordinate;
-                void applyManualCoords(coords);
-              }}
+
+          <View style={styles.mapPreview}>
+            <LeafletMap
+              coordinates={QUEZON_CITY_BOUNDARY}
+              borderColor={accent}
+              selectedLocation={locationCoords}
+              editable
+              fitBoundary={false}
+              onInteractionStart={() => setIsMapInteracting(true)}
+              onInteractionEnd={() => setIsMapInteracting(false)}
+              onLocationChange={(coords) => void applyManualCoords(coords)}
             />
-          </MapView>
+          </View>
+          <Text style={[styles.locationMapHint, { color: isDarkMode ? "#94a3b8" : "#64748b" }]}>
+            The outlined area follows Quezon City&apos;s actual border. Tap the map or drag the pin to refine the location.
+          </Text>
           {locationWarning ? (
             <Text style={styles.locationWarning}>{locationWarning}</Text>
           ) : null}
-          <Pressable
-            style={[styles.lockButton, { borderColor }]}
-            onPress={handleLocationToggle}
-          >
-            <IconSymbol
-              name={manualLock ? "lock.open" : "lock"}
-              size={16}
-              color={accent}
-            />
-            <Text style={styles.lockText}>
-              {manualLock ? t("report.manualPin") : t("report.autoGPS")}
-            </Text>
-          </Pressable>
+          <View style={styles.stepActions}>
+            <Pressable
+              style={[styles.stepBackButton, { borderColor }]}
+              onPress={() => setReportStep(1)}
+            >
+              <Text style={[styles.stepBackText, { color: textColor }]}>Back</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.stepButton, styles.stepButtonInline, { backgroundColor: TealColors.primary }]}
+              onPress={() => {
+                if (!isInsideQuezonCity(locationCoords)) {
+                  setLocationWarning("Move the pin to an incident location inside Quezon City.");
+                  return;
+                }
+                setReportStep(3);
+              }}
+            >
+              <Text style={styles.stepButtonText}>Confirm Location</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View
           style={[
             styles.sectionCard,
             { backgroundColor: cardBackground, borderColor },
+            { display: "none" },
           ]}
         >
           <ThemedText style={styles.sectionTitle}>
@@ -871,24 +1433,35 @@ export default function ReportScreen() {
           style={[
             styles.sectionCard,
             { backgroundColor: cardBackground, borderColor },
+            { display: reportStep === 3 ? "flex" : "none" },
           ]}
         >
-          <ThemedText style={styles.sectionTitle}>
-            {t("report.details")}
-          </ThemedText>
+          <View style={styles.userBubbleRow}>
+            <View style={styles.userBubble}>
+              <Text style={styles.userBubbleText}>
+                Location: {locationNote}{"\n"}({locationCoords.latitude.toFixed(6)}, {locationCoords.longitude.toFixed(6)})
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.assistantBubble, { backgroundColor: isDarkMode ? "#18242f" : "#f1f5f9" }]}>
+            <ThemedText style={[styles.chatBubbleText, { color: textColor }]}>
+              Understood. Finally, please describe the incident in detail below. You can also attach a photo before sending.
+            </ThemedText>
+          </View>
           <TextInput
-            style={[styles.input, { color: isDarkMode ? "#fff" : "#111" }]}
+            style={[styles.input, styles.detailsInput, { color: isDarkMode ? "#fff" : "#111" }]}
             value={summary}
             onChangeText={setSummary}
-            placeholder={t("report.shortSummary")}
+            placeholder="Describe the emergency incident..."
             placeholderTextColor={isDarkMode ? "#6c6c70" : "#999"}
-            maxLength={140}
+            maxLength={1000}
+            multiline
           />
-          <Text style={styles.helperText}>{summary.length}/140 characters</Text>
           <TextInput
             style={[
               styles.input,
               styles.detailsInput,
+              { display: "none" },
               { color: isDarkMode ? "#fff" : "#111" },
             ]}
             value={details}
@@ -910,27 +1483,17 @@ export default function ReportScreen() {
               color={isDarkMode ? "#fff" : "#111"}
             />
             <Text style={styles.attachText}>
-              {selectedMedia ? "Change Media" : t("report.attach")}
+              {selectedMedia ? "Change Photo" : "Add Photo"}
             </Text>
           </Pressable>
           
           {selectedMedia && (
             <View style={styles.mediaPreviewContainer}>
-              {selectedMedia.type?.startsWith('video') ? (
-                <View style={styles.videoPreview}>
-                  <IconSymbol name="play.circle" size={48} color={TealColors.primary} />
-                  <Text style={styles.videoText}>Video Selected</Text>
-                  <Text style={styles.mediaSizeText}>
-                    {mediaUploadService.formatFileSize(selectedMedia.fileSize || 0)}
-                  </Text>
-                </View>
-              ) : (
-                <Image
-                  source={{ uri: selectedMedia.uri }}
-                  style={styles.mediaPreview}
-                  resizeMode="cover"
-                />
-              )}
+              <Image
+                source={{ uri: selectedMedia.uri }}
+                style={styles.mediaPreview}
+                resizeMode="cover"
+              />
               {isUploadingMedia && (
                 <View style={styles.uploadProgressOverlay}>
                   <ActivityIndicator color={TealColors.primary} />
@@ -953,40 +1516,72 @@ export default function ReportScreen() {
               {t("report.attachNote")}
             </ThemedText>
           )}
+          <View style={styles.chatComposerActions}>
+            <Pressable
+              style={[styles.stepBackButton, styles.chatBackButton, { borderColor }]}
+              onPress={() => setReportStep(2)}
+            >
+              <IconSymbol name="chevron.left" size={17} color={textColor} />
+            </Pressable>
+            <Pressable
+              style={[styles.chatSendButton, { backgroundColor: summary.trim() ? "#8e3cac" : "#64748b" }]}
+              onPress={handleSubmit}
+              disabled={!summary.trim() || isSubmitting}
+              accessibilityLabel="Submit incident report"
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <IconSymbol name="paperplane.fill" size={21} color="#ffffff" />
+              )}
+            </Pressable>
+          </View>
         </View>
 
+        {isSubmitting ? (
+          <View style={[styles.assistantBubble, { backgroundColor: isDarkMode ? "#18242f" : "#f1f5f9" }]}>
+            <ThemedText style={[styles.chatBubbleText, { color: textColor }]}>Submitting your incident report. Please wait...</ThemedText>
+          </View>
+        ) : null}
+
         {confirmation ? (
-          <View
-            style={[
-              styles.confirmationCard,
-              {
-                borderColor,
-                backgroundColor: isDarkMode ? "#122024" : "#f1f9f6",
-              },
-            ]}
-          >
-            <ThemedText style={styles.confirmationText}>
-              {confirmation}
-            </ThemedText>
-            <Pressable
-              style={[
-                styles.confirmationButton,
-                { backgroundColor: TealColors.primary },
-              ]}
-              onPress={() => {
-                if (lastIncidentChat) {
-                  router.push({
-                    pathname: "/chat/[id]",
-                    params: lastIncidentChat,
-                  } as never);
-                }
-              }}
-            >
-              <IconSymbol name="bubble.right" size={16} color="#fff" />
-              <Text style={styles.confirmationButtonText}>
-                {t("report.openChat")}
-              </Text>
-            </Pressable>
+          <View style={styles.chatOutcomeBlock}>
+            <View style={styles.userBubbleRow}>
+              <View style={styles.userBubble}>
+                <Text style={styles.userBubbleText}>{summary}</Text>
+              </View>
+            </View>
+            <View style={[styles.assistantBubble, { backgroundColor: isDarkMode ? "#18242f" : "#f1f5f9" }]}>
+              <ThemedText style={[styles.chatBubbleText, { color: textColor }]}>{confirmation}</ThemedText>
+            </View>
+            {lastIncidentChat && reportOutcome !== "error" ? (
+              <>
+                <View style={styles.connectedThreadBadge}>
+                  <Text style={styles.connectedThreadText}>
+                    {reportOutcome === "queued"
+                      ? "REPORT SAVED - WAITING TO SYNC"
+                      : "CONNECTED TO RESPONSE THREAD"}
+                  </Text>
+                </View>
+                <Pressable
+                  style={[
+                    styles.confirmationButton,
+                    { backgroundColor: TealColors.primary },
+                  ]}
+                  onPress={() => {
+                    router.push({
+                      pathname: "/chat/[id]",
+                      params: lastIncidentChat,
+                    } as never);
+                  }}
+                >
+                  <IconSymbol name="bubble.right" size={16} color="#fff" />
+                  <Text style={styles.confirmationButtonText}>
+                    View Messages
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
         ) : null}
         {!confirmation && lastIncidentChat ? (
@@ -1015,10 +1610,12 @@ export default function ReportScreen() {
             </Text>
           </Pressable>
         ) : null}
+          </View>
+        </View>
       </ScrollView>
       
       {/* Loading Animation Overlay */}
-      {(submissionPhase === "sending" || submissionPhase === "success") && (
+      {false && (submissionPhase === "sending" || submissionPhase === "success") && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingContent}>
             {submissionPhase === "sending" ? (
@@ -1073,7 +1670,10 @@ export default function ReportScreen() {
                 {t("report.successTitle", "Report Submitted Successfully")}
               </ThemedText>
               <ThemedText style={[styles.successMessage, { color: textColor }]}>
-                {t("report.successMessage", "Your emergency report has been received. Emergency responders have been notified and are being dispatched to your location. Please stay safe and wait for further instructions.")}
+                Your incident report is now in Emergency Communication. A live
+                response thread has been opened so an admin can review the
+                details and reply. If you are in immediate danger, use
+                Emergency Call.
               </ThemedText>
               <View style={styles.successActions}>
                 <Pressable
@@ -1087,12 +1687,15 @@ export default function ReportScreen() {
                     setConfirmation("");
                     setSummary("");
                     setDetails("");
+                    setOtherReportType("");
                     setSeverity("Medium");
-                    router.push("/(tabs)" as never);
+                    setReportStep(1);
+                    setShowReportForm(false);
+                    void loadReportThreads(true);
                   }}
                 >
                   <Text style={styles.successPrimaryButtonText}>
-                    {t("report.returnToDashboard", "Return to Dashboard")}
+                    Back to Messages
                   </Text>
                 </Pressable>
                 {lastIncidentChat && (
@@ -1121,13 +1724,14 @@ export default function ReportScreen() {
         </Pressable>
       </Modal>
       
-      <Pressable
+      {false && <Pressable
         style={[
           styles.floatingButton,
           {
             backgroundColor: "#e53935",
             // Keep the CTA clearly above the bottom tab bar + safe area.
             bottom: tabBarHeight + -30,
+            display: reportStep === 3 ? "flex" : "none",
           },
         ]}
         onPress={handleSubmit}
@@ -1149,7 +1753,7 @@ export default function ReportScreen() {
               ? t("report.submit")
               : t("report.addSummary")}
         </Text>
-      </Pressable>
+      </Pressable>}
     </SafeAreaView>
   );
 }
@@ -1162,6 +1766,181 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: 16,
     paddingBottom: 140, // overridden dynamically to account for tab bar + safe area
+  },
+  chatShell: {
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 18,
+  },
+  chatHeader: {
+    minHeight: 82,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  chatHeaderIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  chatShield: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#dc2626",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  chatOnlineDot: {
+    position: "absolute",
+    right: 0,
+    bottom: 1,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#22c55e",
+    borderWidth: 2,
+    borderColor: "#0f172a",
+  },
+  chatHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  chatHeaderTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  chatHeaderStatus: {
+    marginTop: 2,
+    color: "#22c55e",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  chatCloseButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatConversation: {
+    padding: 14,
+    gap: 14,
+  },
+  assistantBubble: {
+    alignSelf: "flex-start",
+    maxWidth: "88%",
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  chatBubbleText: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  userBubbleRow: {
+    width: "100%",
+    alignItems: "flex-end",
+  },
+  userBubble: {
+    maxWidth: "88%",
+    borderRadius: 8,
+    backgroundColor: "#8e3cac",
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+  },
+  userBubbleText: {
+    color: "#ffffff",
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  chatOptionsPanel: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    gap: 10,
+  },
+  chatOptionButton: {
+    minHeight: 54,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+  },
+  chatOptionText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  otherReportPanel: {
+    borderTopWidth: 1,
+    marginTop: 2,
+    paddingTop: 12,
+    gap: 8,
+  },
+  otherReportLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  otherReportInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    fontSize: 15,
+  },
+  otherReportContinue: {
+    minHeight: 48,
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  disabledButton: {
+    opacity: 0.45,
+  },
+  chatComposerActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 10,
+  },
+  chatBackButton: {
+    width: 48,
+    paddingHorizontal: 0,
+    marginTop: 0,
+  },
+  chatSendButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chatOutcomeBlock: {
+    gap: 14,
+  },
+  connectedThreadBadge: {
+    alignSelf: "center",
+    borderRadius: 999,
+    backgroundColor: "#334155",
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+  },
+  connectedThreadText: {
+    color: "#e2e8f0",
+    fontSize: 11,
+    fontWeight: "800",
   },
   queueBanner: {
     borderWidth: 1,
@@ -1249,6 +2028,224 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  reportsHeader: {
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+  },
+  reportsTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  reportsSubtitle: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  reportsLoader: {
+    marginTop: 44,
+  },
+  reportList: {
+    paddingHorizontal: 14,
+  },
+  reportListEmpty: {
+    flexGrow: 1,
+  },
+  reportEmpty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 36,
+    gap: 10,
+  },
+  reportEmptyIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reportEmptyTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+  },
+  reportEmptyText: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  reportSeparator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 72,
+  },
+  reportRow: {
+    minHeight: 96,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderRadius: 8,
+  },
+  reportAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reportRowBody: {
+    flex: 1,
+    gap: 5,
+  },
+  reportRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  reportRowTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  reportRowTime: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  reportMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  reportStatus: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  reportStatusText: {
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  reportSystem: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  reportPreview: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  reportDelete: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  newReportFabWrap: {
+    position: "absolute",
+    right: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  newReportFabLabel: {
+    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    fontSize: 13,
+    fontWeight: "800",
+    elevation: 2,
+  },
+  newReportFab: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+    paddingBottom: 32,
+    gap: 10,
+  },
+  modalOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+  },
+  modalIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalOptionTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modalOptionDesc: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalCancel: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  stepButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    marginTop: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  stepButtonInline: {
+    flex: 1,
+    marginTop: 0,
+  },
+  stepButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  stepActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+  },
+  stepBackButton: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  stepBackText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
   typeRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1293,10 +2290,60 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  locationRow: {
+  locationIntro: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 12,
+  },
+  locationSearchBox: {
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 9,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+  },
+  locationSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  locationSuggestions: {
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 6,
+    overflow: "hidden",
+  },
+  locationSuggestion: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  locationSuggestionText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  locationSearchMessage: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 14,
+  },
+  locationAddress: {
+    flex: 1,
+    minWidth: 0,
   },
   locationLabel: {
     fontSize: 12,
@@ -1306,17 +2353,20 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   locationValue: {
-    fontSize: 16,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "600",
   },
   refreshChip: {
+    minHeight: 38,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 8,
   },
   refreshText: {
     fontSize: 12,
@@ -1397,20 +2447,6 @@ const styles = StyleSheet.create({
     color: "#f44336",
     fontSize: 12,
     marginTop: 8,
-  },
-  lockButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderRadius: 12,
-  },
-  lockText: {
-    fontSize: 12,
-    fontWeight: "600",
   },
   helperText: {
     fontSize: 12,
@@ -1542,10 +2578,15 @@ const styles = StyleSheet.create({
     color: "#4caf50",
   },
   mapPreview: {
-    height: 190,
-    borderRadius: 16,
+    height: 210,
+    borderRadius: 8,
     marginTop: 12,
     overflow: "hidden",
+  },
+  locationMapHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
   },
   mediaPreviewContainer: {
     marginTop: 12,
@@ -1557,24 +2598,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 200,
     borderRadius: 12,
-  },
-  videoPreview: {
-    width: "100%",
-    height: 200,
-    borderRadius: 12,
-    backgroundColor: "#f0f0f0",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  videoText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-  },
-  mediaSizeText: {
-    fontSize: 14,
-    color: "#666",
   },
   uploadProgressOverlay: {
     position: "absolute",
@@ -1658,3 +2681,5 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+

@@ -54,6 +54,7 @@ export function SettingsMenuItem({
   showChevron = true,
   icon,
   danger = false,
+  expanded = false,
 }: {
   label: string;
   value?: string;
@@ -61,6 +62,7 @@ export function SettingsMenuItem({
   showChevron?: boolean;
   icon?: string;
   danger?: boolean;
+  expanded?: boolean;
 }) {
   const { isDarkMode } = useTheme();
 
@@ -100,8 +102,8 @@ export function SettingsMenuItem({
       {showChevron && (
         <IconSymbol
           size={20}
-          name="chevron.right"
-          color={isDarkMode ? "#666" : "#999"}
+          name={expanded ? "chevron.down" : "chevron.right"}
+          color={expanded ? TealColors.primary : isDarkMode ? "#666" : "#999"}
         />
       )}
     </Pressable>

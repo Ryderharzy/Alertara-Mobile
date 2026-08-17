@@ -14,9 +14,16 @@ import {
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { systemClusters, systemRegistry } from "@/data/central-command-systems";
+import { subscribeNotificationUnreadCount } from "@/data/notification-center";
 import { useTranslate } from "@/hooks/useTranslate";
+import { loadConversationInbox } from "@/utils/conversation-inbox";
+import {
+  alertFeedService,
+  type AlertFeedItem,
+} from "@/services/api/alert-feed-service";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
     Image,
     NativeScrollEvent,
@@ -35,6 +42,12 @@ export default function HomeScreen() {
   const { t } = useTranslate();
 
   const [activeClusterId, setActiveClusterId] = useState(systemClusters[0].id);
+  const [activeAlerts, setActiveAlerts] = useState<AlertFeedItem[]>([]);
+  const [activeAlertIndex, setActiveAlertIndex] = useState(0);
+  const [alertCarouselWidth, setAlertCarouselWidth] = useState(0);
+  const [unreadAlertCount, setUnreadAlertCount] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const alertCarouselRef = useRef<ScrollView>(null);
 
   const [scrollMetrics, setScrollMetrics] = useState({
     contentHeight: 1,
@@ -54,8 +67,50 @@ export default function HomeScreen() {
     .filter(Boolean);
   const isLoggedIn = Boolean(userProfile?.id);
   const greetingName = userProfile?.name?.split(" ")[0] ?? "there";
-  const activeAlertCount = 2;
+  const activeAlertCount = activeAlerts.length;
+  const carouselAlerts = activeAlerts.slice(0, 5);
   const recentSystemSummary = activeSystems.slice(0, 3);
+
+  useEffect(() => subscribeNotificationUnreadCount(setUnreadAlertCount), []);
+
+  useEffect(() => {
+    const maxIndex = Math.max(carouselAlerts.length - 1, 0);
+    if (activeAlertIndex > maxIndex) setActiveAlertIndex(maxIndex);
+  }, [activeAlertIndex, carouselAlerts.length]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      const loadHomeData = () => {
+        void alertFeedService
+          .getActiveAlerts()
+          .then((alerts) => {
+            if (mounted) setActiveAlerts(alerts);
+          })
+          .catch(() => {
+            // Keep the home screen usable if the alert feed is temporarily offline.
+          });
+        void loadConversationInbox({ userId: userProfile?.id })
+          .then((threads) => {
+            if (!mounted) return;
+            const unread = threads.reduce(
+              (total, thread) => total + (thread.unreadCount ?? 0),
+              0,
+            );
+            setUnreadMessageCount(unread);
+          })
+          .catch(() => {
+            if (mounted) setUnreadMessageCount(0);
+          });
+      };
+      loadHomeData();
+      const timer = setInterval(loadHomeData, 5000);
+      return () => {
+        mounted = false;
+        clearInterval(timer);
+      };
+    }, [userProfile?.id]),
+  );
 
   const handleSystemPress = (systemId: string) => {
     router.push(`/central-command/${systemId}`);
@@ -63,6 +118,30 @@ export default function HomeScreen() {
 
   const handleQuickAction = (target: string) => {
     router.push(target as never);
+  };
+
+  const handleAlertCarouselScroll = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    const width = event.nativeEvent.layoutMeasurement.width || alertCarouselWidth;
+    if (!width) return;
+    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+    setActiveAlertIndex(
+      Math.max(0, Math.min(nextIndex, Math.max(carouselAlerts.length - 1, 0))),
+    );
+  };
+
+  const goToAlertCard = (direction: -1 | 1) => {
+    if (!carouselAlerts.length || !alertCarouselWidth) return;
+    const nextIndex = Math.max(
+      0,
+      Math.min(activeAlertIndex + direction, carouselAlerts.length - 1),
+    );
+    setActiveAlertIndex(nextIndex);
+    alertCarouselRef.current?.scrollTo({
+      x: nextIndex * alertCarouselWidth,
+      animated: true,
+    });
   };
 
   // Scroll progress based on actual scrollable range
@@ -154,18 +233,18 @@ export default function HomeScreen() {
               style={[
                 styles.statusPill,
                 {
-                  backgroundColor: activeAlertCount > 0 ? "#fef2f2" : "#ecfdf5",
+                  backgroundColor: unreadAlertCount > 0 ? "#fef2f2" : "#ecfdf5",
                 },
               ]}
             >
               <ThemedText
                 style={[
                   styles.statusPillText,
-                  { color: activeAlertCount > 0 ? "#dc2626" : "#059669" },
+                  { color: unreadAlertCount > 0 ? "#dc2626" : "#059669" },
                 ]}
               >
-                {activeAlertCount > 0
-                  ? `${activeAlertCount} ${t("emergency_alert")}`
+                {unreadAlertCount > 0
+                  ? `${unreadAlertCount} ${t("emergency_alert")}`
                   : t("all_clear")}
               </ThemedText>
             </View>
@@ -179,41 +258,137 @@ export default function HomeScreen() {
 
         {/* Live Status */}
         <View style={styles.glanceSection}>
-          <Pressable
-            style={[
-              styles.glanceCard,
-              {
-                backgroundColor: isDarkMode ? "#251f1f" : "#fff7ed",
-                borderColor: isDarkMode ? "#61452f" : "#fed7aa",
-              },
-            ]}
-            onPress={() => router.push("/notification")}
-          >
-            <IconSymbol
-              name="bell.badge"
-              size={20}
-              color={activeAlertCount > 0 ? "#e53935" : "#059669"}
-            />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={styles.glanceTitle}>
-                {activeAlertCount > 0
-                  ? `${activeAlertCount} ${t("emergency_alert")}`
-                  : t("all_clear")}
-              </ThemedText>
-              <ThemedText style={styles.glanceSubtitle}>
-                {activeAlertCount > 0
-                  ? t("stay_informed")
-                  : "You’re currently in monitoring mode"}
-              </ThemedText>
+          {carouselAlerts.length > 1 && (
+            <View style={styles.carouselHeader}>
+              <ThemedText style={styles.carouselTitle}>Live notifications</ThemedText>
+              <View style={styles.carouselControls}>
+                <Pressable
+                  style={[
+                    styles.carouselButton,
+                    activeAlertIndex === 0 && styles.carouselButtonDisabled,
+                  ]}
+                  onPress={() => goToAlertCard(-1)}
+                  disabled={activeAlertIndex === 0}
+                  accessibilityLabel="Previous notification"
+                >
+                  <IconSymbol name="arrow.left" size={16} color="#fff" />
+                </Pressable>
+                <ThemedText style={styles.carouselCounter}>
+                  {activeAlertIndex + 1}/{carouselAlerts.length}
+                </ThemedText>
+                <Pressable
+                  style={[
+                    styles.carouselButton,
+                    activeAlertIndex === carouselAlerts.length - 1 &&
+                      styles.carouselButtonDisabled,
+                  ]}
+                  onPress={() => goToAlertCard(1)}
+                  disabled={activeAlertIndex === carouselAlerts.length - 1}
+                  accessibilityLabel="Next notification"
+                >
+                  <IconSymbol name="chevron.right" size={16} color="#fff" />
+                </Pressable>
+              </View>
             </View>
-            <IconSymbol
-              name="chevron.right"
-              size={18}
-              color={isDarkMode ? DARK_ICON : LIGHT_ICON}
-            />
-          </Pressable>
-        </View>
+          )}
 
+          <ScrollView
+            ref={alertCarouselRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={handleAlertCarouselScroll}
+            onLayout={(event) =>
+              setAlertCarouselWidth(event.nativeEvent.layout.width)
+            }
+          >
+            {(carouselAlerts.length ? carouselAlerts : [null]).map((alert) => (
+              <Pressable
+                key={alert?.id ?? "all-clear"}
+                style={[
+                  styles.glanceCard,
+                  alertCarouselWidth > 0 && { width: alertCarouselWidth },
+                  {
+                    backgroundColor: isDarkMode ? "#251f1f" : "#fff7ed",
+                    borderColor: isDarkMode ? "#61452f" : "#fed7aa",
+                  },
+                ]}
+                onPress={() => router.push("/notification")}
+              >
+                <View
+                  style={[
+                    styles.alertIcon,
+                    { backgroundColor: activeAlertCount > 0 ? "#dc2626" : "#059669" },
+                  ]}
+                >
+                  <IconSymbol
+                    name={activeAlertCount > 0 ? "exclamationmark.triangle" : "checkmark.circle"}
+                    size={20}
+                    color="#fff"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  {alert ? (
+                    <>
+                      <View style={styles.alertMetaRow}>
+                        <ThemedText style={styles.alertCategory} numberOfLines={1}>
+                          {alert.category}
+                        </ThemedText>
+                        <View style={styles.severityBadge}>
+                          <ThemedText style={styles.severityText}>
+                            {alert.severity.toUpperCase()}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <ThemedText style={styles.glanceTitle} numberOfLines={2}>
+                        {alert.title}
+                      </ThemedText>
+                      <ThemedText style={styles.glanceSubtitle} numberOfLines={3}>
+                        {alert.message}
+                      </ThemedText>
+                      <ThemedText style={styles.alertTimestamp}>
+                        {new Date(alert.createdAt).toLocaleString()}
+                      </ThemedText>
+                    </>
+                  ) : (
+                    <>
+                      <ThemedText style={styles.glanceTitle}>
+                        {unreadAlertCount > 0
+                          ? `${unreadAlertCount} ${t("emergency_alert")}`
+                          : t("all_clear")}
+                      </ThemedText>
+                      <ThemedText style={styles.glanceSubtitle}>
+                        {activeAlertCount > 0
+                          ? t("stay_informed")
+                          : "You're currently in monitoring mode"}
+                      </ThemedText>
+                    </>
+                  )}
+                </View>
+                <IconSymbol
+                  name="chevron.right"
+                  size={18}
+                  color={isDarkMode ? DARK_ICON : LIGHT_ICON}
+                />
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {carouselAlerts.length > 1 && (
+            <View style={styles.carouselDots} accessibilityLabel="Notification carousel position">
+              {carouselAlerts.map((alert, index) => (
+                <View
+                  key={alert.id}
+                  style={[
+                    styles.carouselDot,
+                    index === activeAlertIndex && styles.carouselDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+        </View>
         <View
           style={[
             styles.sectionSeparator,
@@ -569,9 +744,16 @@ export default function HomeScreen() {
       {/* Message Button */}
       <Pressable
         style={styles.messageButton}
-        onPress={() => router.push("/messages")}
+        onPress={() => router.push("/(tabs)/messages")}
       >
         <IconSymbol size={24} name="bubble.right" color="#fff" />
+        {unreadMessageCount > 0 ? (
+          <View style={styles.messageBadge}>
+            <ThemedText style={styles.messageBadgeText}>
+              {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
+            </ThemedText>
+          </View>
+        ) : null}
       </Pressable>
     </SafeAreaView>
   );
@@ -586,7 +768,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
 
-  // Overlay track — height will be measured via onLayout
+  // Overlay track â€” height will be measured via onLayout
   scrollIndicatorTrack: {
     position: "absolute",
     right: 6,
@@ -648,9 +830,63 @@ const styles = StyleSheet.create({
   glanceSection: {
     marginBottom: 20,
   },
-  glanceCard: {
+  carouselHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  carouselTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  carouselControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  carouselButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: TealColors.primary,
+  },
+  carouselButtonDisabled: {
+    opacity: 0.35,
+  },
+  carouselCounter: {
+    minWidth: 34,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#5b6b68",
+  },
+  carouselDots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 10,
+  },
+  carouselDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#9ca3af",
+    opacity: 0.45,
+  },
+  carouselDotActive: {
+    width: 18,
+    backgroundColor: TealColors.primary,
+    opacity: 1,
+  },
+  glanceCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 12,
     padding: 16,
     borderRadius: 18,
@@ -658,12 +894,52 @@ const styles = StyleSheet.create({
   },
   glanceTitle: {
     fontWeight: "800",
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 21,
   },
   glanceSubtitle: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 18,
     color: "#666",
-    marginTop: 2,
+    marginTop: 5,
+  },
+  alertIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  alertCategory: {
+    flex: 1,
+    color: "#ef4444",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  severityBadge: {
+    borderRadius: 999,
+    backgroundColor: "#dc2626",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  severityText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+  },
+  alertTimestamp: {
+    color: "#8b9491",
+    fontSize: 10,
+    marginTop: 8,
   },
   quickActionsSection: {
     marginBottom: 26,
@@ -971,4 +1247,27 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
   },
+  messageBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 5,
+    backgroundColor: "#ef4444",
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  messageBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+  },
 });
+
+
+
+

@@ -5,9 +5,16 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { TealColors } from '@/constants/theme';
 
 export function CallTabButton(props: BottomTabBarButtonProps) {
+  const {
+    ref: _navigationRef,
+    style: _navigationStyle,
+    children: _navigationChildren,
+    ...pressableProps
+  } = props;
+
   return (
     <Pressable
-      {...props}
+      {...pressableProps}
       style={({ pressed }) => [
         styles.button,
         pressed && { opacity: 0.7 },

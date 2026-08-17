@@ -49,16 +49,57 @@ const districtOptions = [
   { label: "District 2", value: "District 2" },
   { label: "District 3", value: "District 3" },
   { label: "District 4", value: "District 4" },
+  { label: "District 5", value: "District 5" },
+  { label: "District 6", value: "District 6" },
 ];
 
-const barangayOptions = [
-  { label: "Barangay 1", value: "Barangay 1", district: "District 1" },
-  { label: "Barangay 2", value: "Barangay 2", district: "District 1" },
-  { label: "Barangay 3", value: "Barangay 3", district: "District 2" },
-  { label: "Barangay 4", value: "Barangay 4", district: "District 2" },
-  { label: "Barangay 5", value: "Barangay 5", district: "District 3" },
-  { label: "Barangay 6", value: "Barangay 6", district: "District 4" },
-];
+const barangaysByDistrict: Record<string, string[]> = {
+  "District 1": [
+    "Vasra", "Bagong Pag-asa", "Sto. Cristo", "Project 6", "Ramon Magsaysay", "Alicia",
+    "Bahay Toro", "Katipunan", "San Antonio", "Veterans Village", "Bungad", "Phil-Am",
+    "West Triangle", "Sta. Cruz", "Nayong Kanluran", "Paltok", "Paraiso", "Mariblo",
+    "Damayan", "Del Monte", "Masambong", "Talayan", "Sto. Domingo", "Siena",
+    "St. Peter", "San Jose", "Manresa", "Damar", "Pag-ibig sa Nayon", "Balingasa",
+    "Sta. Teresita", "San Isidro Labrador", "Paang Bundok", "Salvacion", "N.S Amoranto",
+    "Maharlika", "Lourdes",
+  ],
+  "District 2": [
+    "Bagong Silangan", "Batasan Hills", "Commonwealth", "Holy Spirit", "Payatas",
+  ],
+  "District 3": [
+    "Silangan", "Socorro", "E. Rodriguez", "West Kamias", "East Kamias", "Quirino 2-A",
+    "Quirino 2-B", "Quirino 2-C", "Quirino 3-A", "Claro (Quirino 3-B)", "Duyan-Duyan",
+    "Amihan", "Matandang Balara", "Pansol", "Loyola Heights", "San Roque", "Mangga",
+    "Masagana", "Villa Maria Clara", "Bayanihan", "Camp Aguinaldo", "White Plains",
+    "Libis", "Ugong Norte", "Bagumbayan", "Blue Ridge A", "Blue Ridge B", "St. Ignatius",
+    "Milagrosa", "Escopa I", "Escopa II", "Escopa III", "Escopa IV", "Marilag",
+    "Bagumbuhay", "Tagumpay", "Dioquino Zobel",
+  ],
+  "District 4": [
+    "Sacred Heart", "Laging Handa", "Obrero", "Paligsahan", "Roxas", "Kamuning",
+    "South Triangle", "Pinagkaisahan", "Immaculate Concepcion", "San Martin De Porres",
+    "Kaunlaran", "Bagong Lipunan ng Crame", "Horseshoe", "Valencia", "Tatalon",
+    "Kalusugan", "Kristong Hari", "Damayang Lagi", "Mariana", "Dona Imelda", "Santol",
+    "Sto. Nino", "San Isidro Galas", "Dona Aurora", "Don Manuel", "Dona Josefa",
+    "UP Village", "Old Capitol Site", "UP Campus", "San Vicente", "Teachers Village East",
+    "Teachers Village West", "Central", "Pinyahan", "Malaya", "Sikatuna Village", "Botocan",
+    "Krus Na Ligas",
+  ],
+  "District 5": [
+    "Bagbag", "Capri", "Greater Lagro", "Gulod", "Kaligayahan", "Nagkaisang Nayon",
+    "North Fairview", "Novaliches Proper", "Pasong Putik Proper", "San Agustin",
+    "San Bartolome", "Sta. Lucia", "Sta. Monica", "Fairview",
+  ],
+  "District 6": [
+    "Apolonio Samson", "Baesa", "Balon Bato", "Culiat", "New Era", "Pasong Tamo",
+    "Sangandaan", "Tandang Sora", "Unang Sigaw", "Sauyo", "Talipapa",
+  ],
+};
+
+const barangayOptions = Object.entries(barangaysByDistrict).flatMap(
+  ([district, barangays]) =>
+    barangays.map((name) => ({ label: name, value: name, district })),
+);
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -107,11 +148,13 @@ export default function SignupScreen() {
   const handleSelectDistrict = (value: string) => {
     setSelectedDistrict(value);
     setBarangay("");
+    setBarangayQuery("");
     setShowDistrictModal(false);
   };
 
   const handleSelectBarangay = (value: string) => {
     setBarangay(value);
+    setBarangayQuery("");
     setShowBarangayModal(false);
   };
 

@@ -17,7 +17,8 @@ import {
   statusToTranslationKey,
 } from "@/services/api/emergency-report-service";
 import { mediaUploadService } from "@/services/api/media-upload-service";
-import { upsertConversationThread } from "@/utils/conversation-inbox";
+import { markConversationThreadRead, upsertConversationThread } from "@/utils/conversation-inbox";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from 'expo-image-picker';
@@ -27,7 +28,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -80,10 +83,15 @@ const STORAGE_PREFIX = "chat-thread-";
 const MAX_HISTORY = 50;
 
 const statusColors: Record<IncidentStatus, string> = {
+  in_queue: "#14b8a6",
   pending: "#e3b341",
+  pending_status: "#e3b341",
   received: "#3b82f6",
+  dispatching: "#f59e0b",
+  ongoing_dispatch: "#8b5cf6",
   in_progress: "#8b5cf6",
   resolved: "#2f9d63",
+  completed: "#16a34a",
   rejected: "#ef4444",
 };
 
@@ -121,12 +129,14 @@ export default function ChatScreen() {
   const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [adminInChat, setAdminInChat] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const lastSeenAdminMessageIdRef = useRef(0);
 
   const categoryLabel = category ? decodeURIComponent(category) : "General";
   const iconName = threadIcon || "robot";
   const reportId = parseReportIdFromThreadId(threadId);
-  const canChangeStatus = reportId !== null;
+  const canChangeStatus = false;
   const currentStatusKey = statusLabel ? statusLabelToKey(statusLabel) : null;
   const statusColor =
     currentStatusKey && statusColors[currentStatusKey]
@@ -136,6 +146,7 @@ export default function ChatScreen() {
 
   // Check if this is a general support chat (should connect to human operators)
   const isGeneralSupport = threadId === "general" || categoryLabel === "General";
+  const supportsResponseTeamChat = isGeneralSupport || reportId !== null;
 
   useEffect(() => {
     if (rawStatus) {
@@ -143,9 +154,44 @@ export default function ChatScreen() {
     }
   }, [rawStatus]);
 
-  // Load real-time conversation if it's general support
   useEffect(() => {
-    if (!isGeneralSupport) return;
+    void markConversationThreadRead(threadId);
+  }, [threadId]);
+
+  useEffect(() => {
+    if (reportId === null) return;
+    let active = true;
+    const syncStatus = async () => {
+      try {
+        const report = await emergencyReportService.getReport(reportId);
+        if (!active || !report) return;
+        const nextStatus = formatReportStatusLabel(report.status);
+        setStatusLabel(nextStatus);
+        await upsertConversationThread({
+          id: threadId,
+          title: alertTitle,
+          category: categoryLabel,
+          status: nextStatus,
+          icon: iconName,
+          reportId,
+          conversationId: report.conversation_id,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch {
+        // Keep the last known status while the device is offline.
+      }
+    };
+    void syncStatus();
+    const timer = setInterval(syncStatus, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [alertTitle, categoryLabel, iconName, reportId, threadId]);
+
+  // Load the server conversation created for general support or an incident report.
+  useEffect(() => {
+    if (!supportsResponseTeamChat) return;
 
     const loadRealTimeConversation = async () => {
       try {
@@ -162,6 +208,7 @@ export default function ChatScreen() {
           // Try to load messages to verify conversation is still open
           try {
             const apiMessages = await chatService.getMessages(convId, userProfile?.id);
+            setAdminInChat(apiMessages.some((msg) => msg.sender_type === 'admin'));
             
             // Convert API messages to local format
             const localMessages: LocalChatMessage[] = apiMessages.map((msg: ApiChatMessage) => ({
@@ -195,7 +242,47 @@ export default function ChatScreen() {
     };
 
     loadRealTimeConversation();
-  }, [threadId, isGeneralSupport, userProfile?.id]);
+  }, [threadId, supportsResponseTeamChat, userProfile?.id]);
+
+  // Keep the mobile thread synchronized with replies from the admin console.
+  useEffect(() => {
+    if (!isRealTimeChat || !conversationId) return;
+    let active = true;
+
+    const refreshMessages = async () => {
+      try {
+        const apiMessages = await chatService.getMessages(conversationId, userProfile?.id);
+        if (!active) return;
+        setAdminInChat(apiMessages.some((msg) => msg.sender_type === 'admin'));
+        const latestAdminMessage = [...apiMessages]
+          .reverse()
+          .find((msg) => msg.sender_type === 'admin');
+        const latestAdminMessageId = Number(latestAdminMessage?.message_id || 0);
+        if (latestAdminMessageId && latestAdminMessageId > lastSeenAdminMessageIdRef.current) {
+          void playAlertaraActionSound("reportSend");
+          lastSeenAdminMessageIdRef.current = latestAdminMessageId;
+        }
+        await markConversationThreadRead(threadId);
+        setMessages(apiMessages.map((msg: ApiChatMessage) => ({
+          id: msg.message_id.toString(),
+          from: msg.sender_type === 'admin' ? 'bot' : 'user',
+          text: msg.message_text,
+          sentAt: new Date(msg.created_at).getTime(),
+          attachmentUrl: msg.attachment_url,
+          attachmentType: msg.attachment_mime,
+        })));
+      } catch (error) {
+        console.warn('Unable to refresh response-team messages:', error);
+      }
+    };
+
+    void refreshMessages();
+    const timer = setInterval(() => void refreshMessages(), 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [conversationId, isRealTimeChat, threadId, userProfile?.id]);
 
   const promptChips = useMemo(() => {
     const key = (category ?? "General").toString();
@@ -207,7 +294,7 @@ export default function ChatScreen() {
   }, [messages]);
 
   const buildInitialMessage = () => {
-    const statusText = statusLabel ? `Current status: ${statusLabel}. ` : "";
+    const statusText = statusLabel ? `Current status: ${statusLabel}. ` : "Current status: In Queue. ";
     const categoryText =
       categoryLabel !== "General" ? `${categoryLabel} incident. ` : "";
     return `You’re chatting about "${alertTitle}". ${categoryText}${statusText}I can help with safety guidance, updates, next steps, or follow-up information.`;
@@ -219,7 +306,7 @@ export default function ChatScreen() {
       categoryLabel !== "General" ? `${categoryLabel} incident: ` : "";
 
     if (normalized.includes("status") || normalized.includes("update")) {
-      return `${categoryPrefix}Your reported incident is currently marked as ${statusLabel ?? "pending"}. If the situation changes, update the details here so you can stay coordinated with responders.`;
+      return `${categoryPrefix}Your reported incident is currently marked as ${statusLabel ?? "In Queue"}. If the situation changes, update the details here so you can stay coordinated with responders.`;
     }
 
     if (
@@ -323,19 +410,22 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, userMsg].slice(-MAX_HISTORY));
     setInput("");
 
-    // Handle real-time chat for general support
-    if (isGeneralSupport && isRealTimeChat) {
+    // Handle real-time chat for general support and submitted incident reports.
+    if (supportsResponseTeamChat && isRealTimeChat) {
       try {
         let currentConvId = conversationId;
         
         // Create conversation if it doesn't exist
         if (!currentConvId) {
+          if (!isGeneralSupport) {
+            throw new Error('This report is still connecting to the response team. Please reopen it and try again.');
+          }
           const newConv = await chatService.createConversation({
             user_id: userProfile?.id,
             user_name: userProfile?.name || 'Guest User',
             user_email: userProfile?.email || undefined,
             user_phone: userProfile?.phone || undefined,
-            user_concern: 'general',
+            user_concern: 'general_enquiry',
             is_guest: !userProfile?.id ? 1 : 0,
             message: trimmed,
           });
@@ -380,7 +470,7 @@ export default function ChatScreen() {
               user_name: userProfile?.name || 'Guest User',
               user_email: userProfile?.email || undefined,
               user_phone: userProfile?.phone || undefined,
-              user_concern: 'general',
+              user_concern: 'general_enquiry',
               is_guest: !userProfile?.id ? 1 : 0,
               message: trimmed,
             });
@@ -492,7 +582,7 @@ export default function ChatScreen() {
       });
 
       // For general support chats with real-time connection
-      if (isGeneralSupport && isRealTimeChat && conversationId) {
+      if (supportsResponseTeamChat && isRealTimeChat && conversationId) {
         await chatService.sendMessage({
           conversation_id: conversationId,
           sender_id: userProfile?.id,
@@ -611,6 +701,11 @@ export default function ChatScreen() {
   return (
     <ThemedView style={[styles.container, { backgroundColor: screenBg }]}>
       <SafeAreaView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          style={styles.keyboardAware}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
         <View style={styles.hero}>
             <Pressable onPress={() => router.back()} style={styles.backBtn}>
               <IconSymbol name="arrow.left" size={18} color="#ffffff" />
@@ -665,23 +760,27 @@ export default function ChatScreen() {
                 </Pressable>
               ) : null}
             </View>
-            <Pressable
-              onPress={handleReset}
-              style={styles.resetBtn}
-              accessibilityLabel="Reset chat history"
-            >
-              <IconSymbol
-                name="arrow.counterclockwise"
-                size={18}
-                color="#e0f2f1"
-              />
-            </Pressable>
+            {reportId === null ? (
+              <Pressable
+                onPress={handleReset}
+                style={styles.resetBtn}
+                accessibilityLabel="Reset chat history"
+              >
+                <IconSymbol
+                  name="arrow.counterclockwise"
+                  size={18}
+                  color="#e0f2f1"
+                />
+              </Pressable>
+            ) : null}
           </View>
 
           <View style={[styles.threadCard, { backgroundColor: cardBg, flex: 1 }]}>
             <ScrollView
               ref={scrollRef}
               contentContainerStyle={styles.threadContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
             >
               {messages.map((m) => (
                 <View
@@ -771,6 +870,9 @@ export default function ChatScreen() {
                 placeholder="Ask a question..."
                 placeholderTextColor="#6b7280"
                 style={[styles.input, { color: textColor }]}
+                onFocus={() => {
+                  setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
+                }}
                 multiline
               />
               <View style={styles.composerIcons}>
@@ -803,6 +905,7 @@ export default function ChatScreen() {
               </Pressable>
             </View>
           </View>
+        </KeyboardAvoidingView>
 
         <Modal
           visible={showStatusMenu}
@@ -877,6 +980,7 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardAware: { flex: 1 },
   hero: {
     backgroundColor: TealColors.primary,
     paddingHorizontal: 16,

@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "Alertara-Mobile",
-    "slug": "Alertara-Mobile",
+    "slug": "alertara-mobile-app",
+    "owner": "alertara-mobile-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -11,7 +12,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app needs microphone access for emergency VoIP calls."
+        "NSMicrophoneUsageDescription": "Alertara needs microphone access so emergency dispatchers can hear your call.",
+        "NSLocationWhenInUseUsageDescription": "Alertara uses your location to help emergency dispatchers find you."
       }
     },
     "android": {
@@ -29,8 +31,11 @@
         "CAMERA",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION"
-      ]
+        "ACCESS_BACKGROUND_LOCATION",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -38,6 +43,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-font",
+      "expo-web-browser",
       [
         "expo-splash-screen",
         {
@@ -49,6 +56,16 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      "@config-plugins/react-native-webrtc",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#023c69",
+          "defaultChannel": "alertara-emergency-default-v5",
+          "sounds": ["./assets/sounds/alertara_emergency.wav"]
+        }
       ]
     ],
     "experiments": {
@@ -58,7 +75,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "6b2238e0-7549-4996-a882-78ab5be0436a"
+        "projectId": "72f0a419-3f89-4787-8bd9-cd0f5ce37dab"
       }
     }
   }

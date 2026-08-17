@@ -65,7 +65,7 @@ export default function LanguageSupportScreen() {
               <Pressable
                 key={lang}
                 style={[styles.languageCard, { backgroundColor: cardBg, borderColor: border }]}
-                onPress={() => setLanguage(lang)}
+                onPress={() => setLanguage(lang === "tl" ? "tl" : "en")}
               >
                 <View style={styles.languageInfo}>
                   <ThemedText style={[styles.languageName, { color: text }]}>

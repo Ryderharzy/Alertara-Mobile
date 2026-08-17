@@ -7,7 +7,8 @@ import { apiClient } from './api-config';
 
 export interface UserPreferenceData {
   user_id: number;
-  preferred_language: 'en' | 'tl' | 'ceb' | 'war' | 'hil' | 'es' | 'fr';
+  preferred_language: 'en' | 'tl';
+  notification_language?: 'en' | 'tl' | 'both';
   sms_notifications?: boolean;
   email_notifications?: boolean;
   push_notifications?: boolean;
@@ -17,6 +18,7 @@ export interface UserPreferenceData {
 export interface UserPreferenceResponse {
   user_id: number;
   preferred_language: string;
+  notification_language?: string;
   sms_notifications: boolean;
   email_notifications: boolean;
   push_notifications: boolean;

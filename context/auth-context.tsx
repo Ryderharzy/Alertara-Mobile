@@ -4,7 +4,7 @@ import { deviceService } from "@/services/api/device-service";
 import { locationService } from "@/services/api/location-service";
 import { sessionService } from "@/services/api/session-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
+import { isAxiosError } from "axios";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Platform } from "react-native";
 
@@ -42,6 +42,14 @@ type UserProfile = {
   phone: string | null;
   status: string | null;
   user_type: string | null;
+  profile_pic?: string | null;
+  nationality?: string | null;
+  district?: string | null;
+  barangay?: string | null;
+  house_number?: string | null;
+  house_unit?: string | null;
+  street?: string | null;
+  address?: string | null;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -204,7 +212,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const getApiErrorMessage = (error: unknown): string => {
-    if (axios.isAxiosError(error)) {
+    if (isAxiosError(error)) {
       if (error.response) {
         const data = error.response.data as
           | {

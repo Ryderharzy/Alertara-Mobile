@@ -352,16 +352,11 @@ export function getAvailablePhraseKeys(): string[] {
 
 // Get all supported languages
 export function getSupportedLanguages(): LanguageCode[] {
-  return ["en", "tl", "ceb", "war", "hil", "es", "fr"];
+  return ["en", "tl"];
 }
 
 // Language display names
-export const languageNames: Record<LanguageCode, string> = {
+export const languageNames: Partial<Record<LanguageCode, string>> & Record<"en" | "tl", string> = {
   en: "English",
-  tl: "Filipino (Tagalog)",
-  ceb: "Cebuano (Bisaya)",
-  war: "Waray",
-  hil: "Hiligaynon (Ilonggo)",
-  es: "Spanish",
-  fr: "French",
+  tl: "Tagalog",
 };
