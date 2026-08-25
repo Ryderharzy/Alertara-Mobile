@@ -944,39 +944,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       });
 
       socket.emit('join', room);
-      await iceServersReady;
-      const peer = createCallPeerConnection();
-      const peerEvents = peer as any;
-      peerRef.current = peer;
-      localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
-      peerEvents.addEventListener('icecandidate', (event: any) => {
-        if (!event.candidate) return;
-        const serializedCandidate = event.candidate.toJSON?.() || event.candidate;
-        socket.emit('candidate', { candidate: serializedCandidate, callId, room }, room);
-      });
-      peerEvents.addEventListener('track', attachRemoteAudio);
-      peerEvents.addEventListener('connectionstatechange', () => {
-        const state = peer.connectionState;
-        if (state === 'connected') {
-          setCallState('connected');
-          setStatus('Connected to Emergency Communication admin');
-          startSpeakingMonitor();
-        } else if (state === 'failed') {
-          // The lobby peer is superseded as soon as the call is forwarded to
-          // ERS. Its failure must not overwrite the real transferred call.
-          if (!ersTransferRequestedRef.current && !transferPeerRef.current) {
-            void endCall(true).then(() => {
-              setCallState('failed');
-              setStatus('Call connection failed. Please try again.');
-            });
-          }
-        }
-      });
-
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      const offerPayload = {
-        sdp: offer,
+      const baseOfferPayload = {
         callId,
         room,
         userId: userProfile?.id || null,
@@ -987,6 +955,72 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
           longitude: location.coords.longitude,
           accuracy: location.coords.accuracy,
         } : null,
+      };
+
+      // Persist first so the admin Open tab shows the call even if WebRTC
+      // negotiation fails or Android rejects a stale local SDP state.
+      await persistOpenEmergencyCall(baseOfferPayload);
+
+      await iceServersReady;
+      let offer: any = null;
+      let offerError: any = null;
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          if (peerRef.current) {
+            try { peerRef.current.close(); } catch {}
+            peerRef.current = null;
+          }
+
+          const peer = createCallPeerConnection();
+          const peerEvents = peer as any;
+          peerRef.current = peer;
+          localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+          peerEvents.addEventListener('icecandidate', (event: any) => {
+            if (!event.candidate) return;
+            const serializedCandidate = event.candidate.toJSON?.() || event.candidate;
+            socket.emit('candidate', { candidate: serializedCandidate, callId, room }, room);
+          });
+          peerEvents.addEventListener('track', attachRemoteAudio);
+          peerEvents.addEventListener('connectionstatechange', () => {
+            const state = peer.connectionState;
+            if (state === 'connected') {
+              setCallState('connected');
+              setStatus('Connected to Emergency Communication admin');
+              startSpeakingMonitor();
+            } else if (state === 'failed') {
+              // The lobby peer is superseded as soon as the call is forwarded to
+              // ERS. Its failure must not overwrite the real transferred call.
+              if (!ersTransferRequestedRef.current && !transferPeerRef.current) {
+                void endCall(true).then(() => {
+                  setCallState('failed');
+                  setStatus('Call connection failed. Please try again.');
+                });
+              }
+            }
+          });
+
+          offer = await peer.createOffer({ iceRestart: attempt > 0 });
+          await peer.setLocalDescription(offer);
+          offerError = null;
+          break;
+        } catch (error) {
+          offerError = error;
+          console.warn('[call][mobile] failed to create local offer; rebuilding peer', error);
+          if (peerRef.current) {
+            try { peerRef.current.close(); } catch {}
+            peerRef.current = null;
+          }
+        }
+      }
+
+      if (!offer) {
+        throw offerError || new Error('Unable to prepare emergency call audio.');
+      }
+
+      const offerPayload = {
+        ...baseOfferPayload,
+        sdp: offer,
       };
       // The caller joins a unique private room, then announces it to the
       // Emergency-Com admin call lobby. No ERS transfer happens until admin action.

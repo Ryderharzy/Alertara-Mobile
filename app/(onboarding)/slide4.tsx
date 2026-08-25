@@ -57,8 +57,8 @@ export default function OnboardingScreen4() {
           {/* Description Section */}
           <View style={styles.descriptionSection}>
             <Text style={[styles.description, { color: colors.icon }]}>
-              You're now ready to access Alertara's safety features and
-              contribute to a safer QC.
+              {"You're now ready to access Alertara's safety features and"}
+              {" contribute to a safer QC."}
             </Text>
           </View>
         </View>
