@@ -1,38 +1,39 @@
 import { ThemedText } from "@/components/themed-text";
 import { IconSymbol } from "@/components/ui/icon-symbol";
-import { chatService } from "@/services/api/chat-service";
-import { playAlertaraActionSound } from "@/services/sound/action-sounds";
 import { Colors, TealColors } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
+import { chatService } from "@/services/api/chat-service";
+import { playAlertaraActionSound } from "@/services/sound/action-sounds";
 import {
-  clearConversationInbox,
-  ConversationThread,
-  formatRelativeTime,
-  getSystemAccent,
-  isReportCompleted,
-  loadConversationInbox,
-  markConversationThreadRead,
-  resolveStatusColor,
-  threadToChatParams,
-  CHAT_THREAD_PREFIX,
+    CHAT_THREAD_PREFIX,
+    clearConversationInbox,
+    ConversationThread,
+    formatRelativeTime,
+    getSystemAccent,
+    isReportCompleted,
+    loadConversationInbox,
+    markConversationThreadRead,
+    READ_MARK_PREFIX,
+    resolveStatusColor,
+    threadToChatParams,
 } from "@/utils/conversation-inbox";
-import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  RefreshControl,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Modal,
+    Pressable,
+    RefreshControl,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -123,14 +124,18 @@ export default function MessagesScreen() {
               JSON.stringify(localMessages.slice(-50)),
             );
 
+            const readMarkRaw = await AsyncStorage.getItem(`${READ_MARK_PREFIX}${thread.id}`);
+            const readAt = readMarkRaw ? new Date(readMarkRaw).getTime() : 0;
+            const lastMessageTime = new Date(last.sentAt).getTime();
+            const isUnread = last.from === "bot" && (!readAt || lastMessageTime > readAt);
+
             nextItems[index] = {
               ...thread,
               conversationId,
               lastMessage: last.text,
               lastMessageFrom: last.from,
               updatedAt: new Date(last.sentAt).toISOString(),
-              unreadCount:
-                last.from === "bot" ? Math.max(thread.unreadCount ?? 0, 1) : 0,
+              unreadCount: isUnread ? 1 : 0,
             };
           } catch {
             // Keep the cached thread preview if the live message endpoint is unavailable.

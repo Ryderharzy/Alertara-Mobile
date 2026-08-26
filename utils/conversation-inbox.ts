@@ -3,18 +3,18 @@
  * Merges local AsyncStorage threads with server reports when a user is logged in.
  */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
-  buildReportThreadId,
-  emergencyReportService,
-  EmergencyReportResponse,
-  formatReportStatusLabel,
-  IncidentStatus,
+    buildReportThreadId,
+    EmergencyReportResponse,
+    emergencyReportService,
+    formatReportStatusLabel,
+    IncidentStatus,
 } from "@/services/api/emergency-report-service";
 import {
-  getPendingReportQueue,
-  PENDING_SYNC_STATUS,
+    getPendingReportQueue,
+    PENDING_SYNC_STATUS,
 } from "@/utils/report-submit-queue";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type ConversationSystemId =
   | "ecs"
@@ -496,9 +496,10 @@ export async function loadConversationInbox(
         lastMessageFrom: preview.lastMessageFrom ?? thread.lastMessageFrom,
         updatedAt: preview.updatedAt ?? thread.updatedAt,
       };
+      const isUnread = await isThreadUnread(mergedThread);
       return {
         ...mergedThread,
-        unreadCount: (await isThreadUnread(mergedThread)) ? 1 : 0,
+        unreadCount: isUnread ? 1 : 0,
       };
     }),
   );
