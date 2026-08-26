@@ -4,6 +4,7 @@ import { Colors, TealColors } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
+import { useTranslate } from "@/hooks/useTranslate";
 import { getTranslation } from "@/data/emergency-translations";
 import {
     NOTIFICATION_ACK_STORAGE_KEY,
@@ -678,6 +679,7 @@ const NotificationCard = ({
 
 export default function NotificationScreen() {
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
   const router = useRouter();
   const { language, alertPreferences } = usePreferences();
   const { userProfile } = useAuth();
@@ -951,12 +953,16 @@ export default function NotificationScreen() {
         }
 
         if (!active) {
-          console.log("Ã¢Å¡Â Ã¯Â¸Â Component unmounted, skipping state update");
+          console.log("Ã°Å¸â€ Â  Sample alert structure:", rows[0]);
+        }
+
+        if (!active) {
+          console.log("Ã¢Å¡Â Ã¯Â¸Â  Component unmounted, skipping state update");
           return;
         }
 
         const mappedAlerts = rows.map(mapAlertToNotificationItem);
-        console.log(`Ã°Å¸â€â€ž Mapped ${mappedAlerts.length} alerts to notification items`);
+        console.log(`Ã°Å¸â€ â€ž Mapped ${mappedAlerts.length} alerts to notification items`);
         
         // Log categories found
         const categories = [...new Set(mappedAlerts.map(alert => alert.category))];
@@ -964,11 +970,10 @@ export default function NotificationScreen() {
         
         setBackendAlerts(mappedAlerts);
       } catch (error) {
-        console.error("Ã¢ÂÅ’ Failed to load backend alerts:", error);
+        console.warn("Failed to load backend alerts (handled gracefully):", error);
         if (active) {
           const errorMessage = error instanceof Error ? error.message : "Failed to load alerts.";
-          console.error(`Ã°Å¸â€œÂ Setting error message: ${errorMessage}`);
-          setAlertsError(errorMessage);
+          setAlertsError(t(errorMessage));
         }
       } finally {
         if (active) {
@@ -1448,7 +1453,7 @@ export default function NotificationScreen() {
                 <TextInput
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder="Search notifications"
+                  placeholder={t("notif.searchPlaceholder", "Search notifications")}
                   placeholderTextColor="#7a7a7a"
                   style={styles.searchText}
                 />
@@ -1504,7 +1509,25 @@ export default function NotificationScreen() {
                       },
                     ]}
                   >
-                    {category.key}
+                    {category.key === "All Alerts"
+                      ? t("notif.allAlerts", "All Alerts")
+                      : category.key === "Announcement"
+                        ? t("notif.announcement", "Announcement")
+                        : category.key === "General"
+                          ? t("notif.general", "General")
+                          : category.key === "Weather Forecast"
+                            ? t("notif.weatherForecast", "Weather Forecast")
+                            : category.key === "Emergency"
+                              ? t("notif.emergency", "Emergency")
+                              : category.key === "Safety"
+                                ? t("notif.safety", "Safety")
+                                : category.key === "Health"
+                                  ? t("notif.health", "Health")
+                                  : category.key === "Traffic"
+                                    ? t("notif.traffic", "Traffic")
+                                    : category.key === "Local News"
+                                      ? t("notif.localNews", "Local News")
+                                      : category.key}
                   </ThemedText>
                   {categoryUnreadCounts[category.key] > 0 && (
                     <View style={styles.tabBadge}>
@@ -1521,7 +1544,7 @@ export default function NotificationScreen() {
           {(alertsLoading || localNewsLoading || healthNewsLoading) && (
             <View style={styles.statusCard}>
               <ThemedText style={[styles.statusText, { color: textColor }]}>
-                Loading alerts...
+                {t("notif.loadingAlerts", "Loading alerts...")}
               </ThemedText>
             </View>
           )}
@@ -1529,7 +1552,7 @@ export default function NotificationScreen() {
           {alertsError ? (
             <View style={styles.statusCard}>
               <ThemedText style={[styles.statusText, { color: textColor }]}>
-                {alertsError}
+                {alertsError.includes("Network error") ? t("errors.networkError", alertsError) : alertsError}
               </ThemedText>
             </View>
           ) : null}

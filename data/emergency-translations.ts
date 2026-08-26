@@ -1,4 +1,4 @@
-export type LanguageCode = "en" | "tl" | "ceb" | "war" | "hil" | "es" | "fr";
+export type LanguageCode = "en" | "fil" | "tl" | "ceb" | "war" | "hil" | "es" | "fr";
 
 export interface TranslationPhrase {
   en: string;
@@ -334,15 +334,13 @@ export const emergencyTranslations: Record<string, TranslationPhrase> = {
 };
 
 // Helper function to get translation for a specific phrase and language
-export function getTranslation(phraseKey: string, language: LanguageCode): string {
+export function getTranslation(phraseKey: string, language: string): string {
   const phrase = emergencyTranslations[phraseKey];
   if (!phrase) {
-    console.warn(`Translation not found for phrase key: ${phraseKey}`);
     return phraseKey; // Return key as fallback
   }
-  
-  // Return the translation for the requested language, fallback to English if not available
-  return phrase[language] || phrase.en || phraseKey;
+  const normLang = (language === "fil" || language === "tl") ? "tl" : (language as LanguageCode);
+  return (phrase as any)[normLang] || (phrase as any)["tl"] || phrase.en || phraseKey;
 }
 
 // Get all available phrase keys
@@ -352,11 +350,12 @@ export function getAvailablePhraseKeys(): string[] {
 
 // Get all supported languages
 export function getSupportedLanguages(): LanguageCode[] {
-  return ["en", "tl"];
+  return ["en", "fil", "tl"];
 }
 
 // Language display names
-export const languageNames: Partial<Record<LanguageCode, string>> & Record<"en" | "tl", string> = {
+export const languageNames: Partial<Record<LanguageCode, string>> & Record<"en" | "fil" | "tl", string> = {
   en: "English",
-  tl: "Tagalog",
+  fil: "Filipino",
+  tl: "Tagalog (Filipino)",
 };

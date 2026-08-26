@@ -17,10 +17,17 @@ export function useTranslation() {
   const t = (key: string, fallback?: string): string => {
     const translation = translations[key];
     if (!translation) {
-      console.warn(`Translation key "${key}" not found`);
       return fallback || key;
     }
-    return translation[language] || fallback || translation.en || key;
+    const normLang = (language === "fil" || language === "tl") ? "tl" : language;
+    return (
+      (translation as any)[normLang] ||
+      (translation as any)[language] ||
+      (translation as any)["tl"] ||
+      fallback ||
+      translation.en ||
+      key
+    );
   };
 
   return { t, language };

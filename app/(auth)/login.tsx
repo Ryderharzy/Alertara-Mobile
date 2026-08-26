@@ -6,6 +6,7 @@ import {
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
+import { useTranslate } from "@/hooks/useTranslate";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -28,6 +29,7 @@ import {
 export default function LoginScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
   const { signIn, activateSession } = useAuth();
   const colors = Colors[isDarkMode ? "dark" : "light"];
   const bgColor = isDarkMode ? DARK_BACKGROUND : LIGHT_BACKGROUND;
@@ -161,7 +163,7 @@ export default function LoginScreen() {
           <View style={styles.formSection}>
             {/* Email Input */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>Email</Text>
+              <Text style={[styles.label, { color: colors.text }]}>{t("auth.email", "Email")}</Text>
               <View
                 style={[
                   styles.inputContainer,
@@ -174,7 +176,7 @@ export default function LoginScreen() {
                 <Ionicons name="mail-outline" size={20} color={colors.text} />
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  placeholder="Enter your email"
+                  placeholder={t("auth.enterEmail", "Enter your email")}
                   placeholderTextColor={colors.icon}
                   value={email}
                   onChangeText={setEmail}
@@ -188,7 +190,7 @@ export default function LoginScreen() {
             {/* Password Input */}
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: colors.text }]}>
-                Password
+                {t("auth.password", "Password")}
               </Text>
               <View
                 style={[
@@ -206,7 +208,7 @@ export default function LoginScreen() {
                 />
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  placeholder="Enter your password"
+                  placeholder={t("auth.enterPassword", "Enter your password")}
                   placeholderTextColor={colors.icon}
                   value={password}
                   onChangeText={setPassword}
@@ -230,7 +232,7 @@ export default function LoginScreen() {
               <Text
                 style={[styles.forgotPassword, { color: TealColors.primary }]}
               >
-                Forgot Password?
+                {t("auth.forgotPassword", "Forgot Password?")}
               </Text>
             </TouchableOpacity>
 

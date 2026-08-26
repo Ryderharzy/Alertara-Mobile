@@ -12,6 +12,7 @@ import {
   TealColors,
 } from "@/constants/theme";
 import { useTheme } from "@/context/theme-context";
+import { useTranslate } from "@/hooks/useTranslate";
 import { subscribeNotificationUnreadCount } from "@/data/notification-center";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image } from "expo-image";
@@ -87,6 +88,7 @@ const searchTargets = [
 export function Header() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
   const searchInputRef = useRef<TextInput>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -231,7 +233,7 @@ export function Header() {
           <IconSymbol size={18} name="magnifyingglass" color={ICON_COLOR} />
           <TextInput
             ref={searchInputRef}
-            placeholder="Search services..."
+            placeholder={t("common.searchServices", "Search services...")}
             placeholderTextColor={isDarkMode ? "#b0b0b0" : "#7f7f7f"}
             value={searchQuery}
             onChangeText={setSearchQuery}

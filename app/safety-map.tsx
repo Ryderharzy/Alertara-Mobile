@@ -1363,7 +1363,7 @@ export default function SafetyMapScreen() {
                           <ThemedText
                             style={[styles.statLabel, { color: statLabelColor }]}
                           >
-                            Feels like
+                            {t("weather.feelsLike", "Feels like")}
                           </ThemedText>
                           <ThemedText
                             style={[styles.statValue, { color: statValueColor }]}
@@ -1382,7 +1382,7 @@ export default function SafetyMapScreen() {
                           <ThemedText
                             style={[styles.statLabel, { color: statLabelColor }]}
                           >
-                            Precip
+                            {t("weather.precipitation", "Precip")}
                           </ThemedText>
                           <ThemedText
                             style={[styles.statValue, { color: statValueColor }]}

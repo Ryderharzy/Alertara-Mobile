@@ -1,10 +1,10 @@
-﻿import { useAuth } from "@/context/auth-context";
+import { useAuth } from "@/context/auth-context";
 import { userPreferenceService } from "@/services/api/user-preference-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-export type LanguageOption = "en" | "tl";
-export type NotificationLanguageOption = "en" | "tl" | "both";
+export type LanguageOption = "en" | "fil" | "tl";
+export type NotificationLanguageOption = "en" | "tl" | "fil" | "both";
 export type AlertPreference = "all" | "critical" | "none";
 
 type PreferencesContextType = {
@@ -79,13 +79,13 @@ export const PreferencesProvider = ({
           AsyncStorage.getItem("incidentHistory"),
         ]);
 
-        if (lang === "en" || lang === "tl") {
+        if (lang === "en" || lang === "fil" || lang === "tl") {
           setLanguageState(lang);
         } else if (lang) {
           await AsyncStorage.setItem("language", "en");
           setLanguageState("en");
         }
-        if (notificationLang === "en" || notificationLang === "tl" || notificationLang === "both") {
+        if (notificationLang === "en" || notificationLang === "tl" || notificationLang === "fil" || notificationLang === "both") {
           setNotificationLanguageState(notificationLang);
         } else if (notificationLang) {
           await AsyncStorage.setItem("notificationLanguage", "en");
@@ -97,8 +97,14 @@ export const PreferencesProvider = ({
         if (userProfile?.id) {
           try {
             const response = await userPreferenceService.getPreferences(userProfile.id);
+            const remoteLang = (response?.data as any)?.language_preference || (response?.data as any)?.preferred_language;
+            if (remoteLang === "en" || remoteLang === "fil" || remoteLang === "tl") {
+              const normLang = (remoteLang === "fil" || remoteLang === "tl") ? "fil" : "en";
+              setLanguageState(normLang);
+              await AsyncStorage.setItem("language", normLang);
+            }
             const remoteNotificationLang = response?.data?.notification_language;
-            if (remoteNotificationLang === "en" || remoteNotificationLang === "tl" || remoteNotificationLang === "both") {
+            if (remoteNotificationLang === "en" || remoteNotificationLang === "tl" || remoteNotificationLang === "fil" || remoteNotificationLang === "both") {
               setNotificationLanguageState(remoteNotificationLang);
               await AsyncStorage.setItem("notificationLanguage", remoteNotificationLang);
             }
@@ -124,16 +130,23 @@ export const PreferencesProvider = ({
     incidentHistory,
     setLanguage: async (lang: LanguageOption) => {
       try {
-        setLanguageState(lang);
-        await AsyncStorage.setItem("language", lang);
+        const normLang = (lang === "fil" || lang === "tl") ? "fil" : "en";
+        setLanguageState(normLang);
+        setNotificationLanguageState(normLang);
+        await AsyncStorage.setItem("language", normLang);
+        await AsyncStorage.setItem("notificationLanguage", normLang);
 
-        // Sync to backend if user is logged in
+        // Sync language_preference to backend
+        const targetBackendLang = normLang === "fil" ? "fil" : "en";
+        await userPreferenceService.saveLanguagePreference(targetBackendLang, userProfile?.id);
+
         if (userProfile?.id) {
           try {
             await userPreferenceService.savePreferences({
               user_id: userProfile.id,
-              preferred_language: lang,
-              notification_language: notificationLanguage,
+              language_preference: targetBackendLang,
+              preferred_language: targetBackendLang,
+              notification_language: targetBackendLang,
               sms_notifications: alertPreferences.sms,
               email_notifications: alertPreferences.email,
               push_notifications: alertPreferences.push,
@@ -149,7 +162,6 @@ export const PreferencesProvider = ({
             });
           } catch (backendError) {
             console.error("Failed to sync language to backend:", backendError);
-            // Don't throw error - local storage update succeeded
           }
         }
       } catch (error) {

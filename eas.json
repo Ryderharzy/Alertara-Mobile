@@ -15,6 +15,9 @@
     "preview": {
       "environment": "preview",
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_SOCKET_URL": "https://emergency-comm.alertaraqc.com"
       }
@@ -22,6 +25,9 @@
     "production": {
       "environment": "production",
       "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
         "EXPO_PUBLIC_SOCKET_URL": "https://emergency-comm.alertaraqc.com"
       }

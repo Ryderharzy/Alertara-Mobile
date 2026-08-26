@@ -10,9 +10,11 @@ export const useTranslate = () => {
     return (key: string, fallback?: string) => {
       const entry = translations[key];
       if (entry) {
-        // Try requested language first, then English, then any available value.
+        const normLang = (language === "fil" || language === "tl") ? "tl" : language;
         return (
-          entry[language] ??
+          (entry as any)[normLang] ??
+          (entry as any)[language] ??
+          (entry as any)["tl"] ??
           entry.en ??
           Object.values(entry).find(Boolean) ??
           fallback ??
@@ -21,7 +23,6 @@ export const useTranslate = () => {
       }
 
       if (!missingKeysRef.current.has(key)) {
-        // Log once to help catch untranslated strings while keeping UI stable.
         console.warn(`[i18n] Missing translation key: ${key}`);
         missingKeysRef.current.add(key);
       }

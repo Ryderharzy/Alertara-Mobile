@@ -86,7 +86,7 @@ export function BottomNav({
               : route.name === "messages"
                 ? t("nav.messages", "Messages")
                 : route.name === "report"
-                  ? t("nav.messages", "Messages")
+                  ? t("nav.report", "Report")
                   : route.name === "me"
                     ? t("nav.profile", "Profile")
                     : route.name === "call"

@@ -15,7 +15,7 @@ import {
     TealColors,
 } from "@/constants/theme";
 import { useAuth } from "@/context/auth-context";
-import { LanguageOption, NotificationLanguageOption, usePreferences } from "@/context/preferences-context";
+import { LanguageOption, usePreferences } from "@/context/preferences-context";
 import { useTheme } from "@/context/theme-context";
 import { getTranslation } from "@/data/emergency-translations";
 import { useTranslate } from "@/hooks/useTranslate";
@@ -78,8 +78,6 @@ export default function MeScreen() {
   const {
     language,
     setLanguage,
-    notificationLanguage,
-    setNotificationLanguage,
     alertPreferences,
     updateAlertPreferences,
     incidentHistory,
@@ -128,14 +126,10 @@ export default function MeScreen() {
   const displayEmail = userProfile?.email ?? "No account connected";
   const displayPhone = userProfile?.phone ?? "Phone not set";
 
-  const languageLabels: Record<LanguageOption, string> = {
+  const languageLabels: Record<string, string> = {
     en: t("language.english", "English"),
+    fil: t("language.tagalog", "Filipino"),
     tl: t("language.tagalog", "Filipino"),
-  };
-  const notificationLanguageLabels: Record<NotificationLanguageOption, string> = {
-    en: "English",
-    tl: "Filipino",
-    both: "Both",
   };
 
   const handleChangePassword = () => {
@@ -267,17 +261,6 @@ export default function MeScreen() {
         },
       ],
     );
-  };
-
-  const handleNotificationLanguageSelect = async (value: string) => {
-    const langValue = (value === "tl" || value === "both" ? value : "en") as NotificationLanguageOption;
-    if (langValue === notificationLanguage) return;
-    try {
-      await setNotificationLanguage(langValue);
-      Alert.alert("Notification language updated", "Emergency alerts will use " + notificationLanguageLabels[langValue] + ".");
-    } catch {
-      Alert.alert("Could not save notification language", "Please try again.");
-    }
   };
 
   const handleViewHistory = () => {
@@ -596,15 +579,15 @@ export default function MeScreen() {
         )}
 
         {/* Account Settings */}
-        <SettingsSection title="ACCOUNT SETTINGS">
+        <SettingsSection title={t("settings.accountSettings", "ACCOUNT SETTINGS")}>
           <SettingsMenuItem
-            label="Edit Profile"
+            label={t("settings.editProfile", "Edit Profile")}
             icon="pencil"
             onPress={handleEditProfile}
           />
           <SettingsDivider />
           <SettingsMenuItem
-            label="Email Address"
+            label={t("settings.emailAddress", "Email Address")}
             value={displayEmail}
             icon="mail"
             onPress={() =>
@@ -616,7 +599,7 @@ export default function MeScreen() {
           />
           <SettingsDivider />
           <SettingsMenuItem
-            label="Phone Number"
+            label={t("settings.phoneNumber", "Phone Number")}
             value={displayPhone}
             icon="phone"
             onPress={() =>
@@ -629,9 +612,9 @@ export default function MeScreen() {
         </SettingsSection>
 
         {/* Alert Preferences */}
-        <SettingsSection title="ALERT PREFERENCES">
+        <SettingsSection title={t("settings.alertPreferences", "ALERT PREFERENCES")}>
           <SettingsMenuItem
-            label="Alert Categories"
+            label={t("settings.alertCategories", "Alert Categories")}
             icon="list.bullet"
             onPress={() => { animateSettingsDropdown(); setAlertCategoriesExpanded(!alertCategoriesExpanded); }}
             showChevron={true}
@@ -641,16 +624,16 @@ export default function MeScreen() {
           {alertCategoriesExpanded && (
             <>
               <SettingsToggle
-                label="Crime Alerts"
-                description="Get notified of crime incidents nearby"
+                label={t("settings.crimes", "Crime Alerts")}
+                description={t("settings.crimesDesc", "Get notified of crime incidents nearby")}
                 value={alertPreferences.crimes}
                 onValueChange={(value) => updateAlertPreferences({ crimes: value })}
                 icon="exclamationmark.triangle"
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Emergency Alerts"
-                description="High priority emergency notifications"
+                label={t("settings.emergencies", "Emergency Alerts")}
+                description={t("settings.emergenciesDesc", "High priority emergency notifications")}
                 value={alertPreferences.emergencies}
                 onValueChange={(value) =>
                   updateAlertPreferences({ emergencies: value })
@@ -659,8 +642,8 @@ export default function MeScreen() {
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Community Alerts"
-                description="Community-shared alerts and updates"
+                label={t("settings.communityAlerts", "Community Alerts")}
+                description={t("settings.communityAlertsDesc", "Community-shared alerts and updates")}
                 value={alertPreferences.communityAlerts}
                 onValueChange={(value) =>
                   updateAlertPreferences({ communityAlerts: value })
@@ -669,8 +652,8 @@ export default function MeScreen() {
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Weather Alerts"
-                description="Weather forecasts and warnings"
+                label={t("settings.weatherAlerts", "Weather Alerts")}
+                description={t("settings.weatherAlertsDesc", "Weather forecasts and warnings")}
                 value={alertPreferences.weather}
                 onValueChange={(value) =>
                   updateAlertPreferences({ weather: value })
@@ -679,8 +662,8 @@ export default function MeScreen() {
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Earthquake Alerts"
-                description="PHIVOLCS earthquake bulletins and seismic advisories"
+                label={t("settings.seismicAlerts", "Earthquake Alerts")}
+                description={t("settings.seismicAlertsDesc", "PHIVOLCS earthquake bulletins and seismic advisories")}
                 value={alertPreferences.seismic}
                 onValueChange={(value) =>
                   updateAlertPreferences({ seismic: value })
@@ -689,8 +672,8 @@ export default function MeScreen() {
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Traffic Alerts"
-                description="Traffic updates and road closures"
+                label={t("settings.trafficAlerts", "Traffic Alerts")}
+                description={t("settings.trafficAlertsDesc", "Traffic updates and road closures")}
                 value={alertPreferences.traffic}
                 onValueChange={(value) =>
                   updateAlertPreferences({ traffic: value })
@@ -699,8 +682,8 @@ export default function MeScreen() {
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Health Alerts"
-                description="Health advisories and medical updates"
+                label={t("settings.healthAlerts", "Health Alerts")}
+                description={t("settings.healthAlertsDesc", "Health advisories and medical updates")}
                 value={alertPreferences.health}
                 onValueChange={(value) =>
                   updateAlertPreferences({ health: value })
@@ -713,7 +696,7 @@ export default function MeScreen() {
           <SettingsDivider />
           
           <SettingsMenuItem
-            label="Notification Channels"
+            label={t("settings.notificationChannels", "Notification Channels")}
             icon="antenna.radiowaves.left.and.right"
             onPress={() => { animateSettingsDropdown(); setNotificationChannelsExpanded(!notificationChannelsExpanded); }}
             showChevron={true}
@@ -723,24 +706,24 @@ export default function MeScreen() {
           {notificationChannelsExpanded && (
             <>
               <SettingsToggle
-                label="Push Notifications"
-                description="Receive alerts via app notifications"
+                label={t("settings.pushNotifications", "Push Notifications")}
+                description={t("settings.pushNotificationsDesc", "Receive alerts via app notifications")}
                 value={alertPreferences.push}
                 onValueChange={(value) => updateAlertPreferences({ push: value })}
                 icon="iphone"
               />
               <SettingsDivider />
               <SettingsToggle
-                label="Email Notifications"
-                description="Receive alerts via email"
+                label={t("settings.emailNotifications", "Email Notifications")}
+                description={t("settings.emailNotificationsDesc", "Receive alerts via email")}
                 value={alertPreferences.email}
                 onValueChange={(value) => updateAlertPreferences({ email: value })}
                 icon="mail"
               />
               <SettingsDivider />
               <SettingsToggle
-                label="SMS Notifications"
-                description="Receive alerts via SMS"
+                label={t("settings.smsNotifications", "SMS Notifications")}
+                description={t("settings.smsNotificationsDesc", "Receive alerts via SMS")}
                 value={alertPreferences.sms}
                 onValueChange={(value) => updateAlertPreferences({ sms: value })}
                 icon="message"
@@ -749,29 +732,16 @@ export default function MeScreen() {
           )}
 
           <SettingsDivider />
-          <SettingsSelect
-            label="Notification Language"
-            description="Choose the language used for emergency alerts"
-            value={notificationLanguage}
-            icon="globe"
-            options={[
-              { label: "English", value: "en" },
-              { label: "Filipino", value: "tl" },
-              { label: "Both", value: "both" },
-            ]}
-            onSelect={handleNotificationLanguageSelect}
-          />
-          <SettingsDivider />
           <SettingsMenuItem
-            label="Notification Permission"
+            label={t("settings.notificationPermission", "Notification Permission")}
             value={notificationPermissionLabel}
             icon="bell"
             onPress={requestEmergencyNotificationPermission}
           />
           <SettingsDivider />
           <SettingsToggle
-            label="Sound"
-            description="Play a sound when an emergency alert arrives"
+            label={t("settings.sound", "Sound")}
+            description={t("settings.soundDesc", "Play a sound when an emergency alert arrives")}
             value={notificationSoundEnabled}
             onValueChange={(value) =>
               saveEmergencyNotificationSettings({
@@ -783,38 +753,38 @@ export default function MeScreen() {
           />
           <SettingsDivider />
           <SettingsToggle
-            label="Pop on Screen / Banner"
-            description="Use high-priority alert banners for emergency notifications"
+            label={t("settings.banner", "Pop on Screen / Banner")}
+            description={t("settings.bannerDesc", "Use high-priority alert banners for emergency notifications")}
             value={notificationPopOnScreen}
             onValueChange={(value) => saveEmergencyNotificationSettings({ popOnScreen: value })}
             icon="exclamationmark.triangle"
           />
           <SettingsDivider />
           <SettingsToggle
-            label="Lock Screen"
-            description="Allow emergency alerts to appear on the lock screen"
+            label={t("settings.lockScreen", "Lock Screen")}
+            description={t("settings.lockScreenDesc", "Allow emergency alerts to appear on the lock screen")}
             value={notificationLockScreen}
             onValueChange={(value) => saveEmergencyNotificationSettings({ lockScreen: value })}
             icon="lock"
           />
           <SettingsDivider />
           <SettingsToggle
-            label="Vibration"
-            description="Vibrate when high-priority alerts arrive"
+            label={t("settings.vibration", "Vibration")}
+            description={t("settings.vibrationDesc", "Vibrate when high-priority alerts arrive")}
             value={notificationVibration}
             onValueChange={(value) => saveEmergencyNotificationSettings({ vibration: value })}
             icon="phone"
           />
           <SettingsDivider />
           <SettingsMenuItem
-            label="Alert Sound"
+            label={t("settings.alertSound", "Alert Sound")}
             value={notificationSoundDisplay}
             icon="bell"
             onPress={openEmergencyNotificationSettings}
           />
           <SettingsDivider />
           <SettingsMenuItem
-            label="In-App Sound"
+            label={t("settings.inAppSound", "In-App Sound")}
             value="Preview app action tone"
             icon="speaker.wave.2"
             onPress={() => playAlertaraActionSound("reportSend")}
@@ -822,7 +792,7 @@ export default function MeScreen() {
         </SettingsSection>
 
         {/* Preferences */}
-        <SettingsSection title="PREFERENCES">
+        <SettingsSection title={t("settings.preferences", "PREFERENCES")}>
           <View
             ref={languageAnchorRef}
             onLayout={(e) => {
@@ -839,15 +809,15 @@ export default function MeScreen() {
               value={language}
               icon="globe"
               options={[
-                { label: languageLabels.en, value: "en" },
-                { label: languageLabels.tl, value: "tl" },
+                { label: "English", value: "en" },
+                { label: "Filipino (Tagalog)", value: "fil" },
               ]}
               onSelect={handleLanguageSelect}
             />
           </View>
           <SettingsDivider />
           <SettingsToggle
-            label="Dark Theme"
+            label={t("settings.darkTheme", "Dark Theme")}
             description={
               isDarkMode ? "Currently enabled" : "Currently disabled"
             }
@@ -858,9 +828,9 @@ export default function MeScreen() {
         </SettingsSection>
 
         {/* Incident History */}
-        <SettingsSection title="ACTIVITY">
+        <SettingsSection title={t("settings.activity", "ACTIVITY")}>
           <SettingsMenuItem
-            label="Total Emergency Calls"
+            label={t("settings.totalCalls", "Total Emergency Calls")}
             value={incidentHistory.calls.toString()}
             icon="phone"
             showChevron={false}
@@ -868,7 +838,7 @@ export default function MeScreen() {
           />
           <SettingsDivider />
           <SettingsMenuItem
-            label="Total Reports Submitted"
+            label={t("settings.totalReports", "Total Reports Submitted")}
             value={incidentHistory.reports.toString()}
             icon="checkmark.circle"
             showChevron={false}
@@ -876,7 +846,7 @@ export default function MeScreen() {
           />
           <SettingsDivider />
           <SettingsMenuItem
-            label="View Full History"
+            label={t("settings.viewHistory", "View Full History")}
             icon="list.bullet"
             onPress={handleViewHistory}
           />
@@ -884,9 +854,9 @@ export default function MeScreen() {
 
         {/* Security */}
         {isLoggedIn && (
-          <SettingsSection title="SECURITY">
+          <SettingsSection title={t("settings.security", "SECURITY")}>
             <SettingsMenuItem
-              label="Change Password"
+              label={t("profile.changePassword", "Change Password")}
               icon="lock"
               onPress={() => setChangePasswordModalVisible(true)}
             />

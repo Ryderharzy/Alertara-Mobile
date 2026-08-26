@@ -9,6 +9,7 @@ import {
 import { useRouter } from "expo-router";
 import { useTheme } from "@/context/theme-context";
 import { useAuth } from "@/context/auth-context";
+import { useTranslate } from "@/hooks/useTranslate";
 import {
   Colors,
   TealColors,
@@ -19,6 +20,7 @@ import {
 export default function OnboardingScreen4() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
+  const { t } = useTranslate();
   const { completeOnboarding } = useAuth();
   const colors = Colors[isDarkMode ? 'dark' : 'light'];
   const bgColor = isDarkMode ? DARK_BACKGROUND : LIGHT_BACKGROUND;
@@ -48,17 +50,16 @@ export default function OnboardingScreen4() {
               style={styles.heroImage}
               resizeMode="contain"
             />
-            <Text style={[styles.title, { color: colors.text }]}>All Set!</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{t("onboarding.slide4Title", "All Set!")}</Text>
             <Text style={[styles.subtitle, { color: colors.icon }]}>
-              Join thousands of QC citizens keeping their communities safe
+              {t("onboarding.slide4Subtitle", "Join thousands of QC citizens keeping their communities safe")}
             </Text>
           </View>
 
           {/* Description Section */}
           <View style={styles.descriptionSection}>
             <Text style={[styles.description, { color: colors.icon }]}>
-              You're now ready to access Alertara's safety features and
-              contribute to a safer QC.
+              {t("onboarding.slide4Desc", "You're now ready to access Alertara's safety features and contribute to a safer QC.")}
             </Text>
           </View>
         </View>
@@ -71,14 +72,14 @@ export default function OnboardingScreen4() {
               onPress={handleBack}
               activeOpacity={0.7}
             >
-              <Text style={[styles.secondaryButtonText, { color: TealColors.primary }]}>Back</Text>
+              <Text style={[styles.secondaryButtonText, { color: TealColors.primary }]}>{t("common.back", "Back")}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.getStartedButton, { backgroundColor: TealColors.primary }]}
               onPress={handleGetStarted}
               activeOpacity={0.8}
             >
-              <Text style={styles.buttonText}>Get Started</Text>
+              <Text style={styles.buttonText}>{t("onboarding.getStarted", "Get Started")}</Text>
             </TouchableOpacity>
           </View>
 
