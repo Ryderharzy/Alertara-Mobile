@@ -1,6 +1,6 @@
 import { LanguageOption } from "@/context/preferences-context";
 
-type LangMap = Record<LanguageOption, string> & Partial<Record<string, string>>;
+type LangMap = Record<string, string>;
 
 const translations: Record<string, LangMap> = {
   // Navigation
@@ -543,6 +543,7 @@ const translations: Record<string, LangMap> = {
   "auth.phone": { en: "Phone", es: "Teléfono", fr: "Téléphone", tl: "Telepono", ceb: "Telepono", war: "Telepono", hil: "Telepono" },
   "auth.alreadyHaveAccount": { en: "Already have an account?", es: "¿Ya tienes una cuenta?", fr: "Vous avez déjà un compte ?", tl: "May account ka na?", ceb: "Naa nay account ka?", war: "Naa na account ka?", hil: "Naa na account ka?" },
   "auth.loginNow": { en: "Login now", es: "Inicia sesión ahora", fr: "Connectez-vous maintenant", tl: "Mag-login na", ceb: "Mag-login na", war: "Mag-login na", hil: "Mag-login na" },
+  "errors.networkError": { en: "Network error. Please check your connection.", tl: "Network error. Pakisuri ang iyong koneksyon." },
 };
 
 export default translations;

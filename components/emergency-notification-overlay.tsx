@@ -75,6 +75,8 @@ export function EmergencyNotificationOverlay() {
     return () => clearTimeout(timer);
   }, [alert, bannerAnim, hideAlert]);
 
+  const handledResponseKeysRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const saveAndShow = async (notification: Notifications.Notification, show: boolean) => {
       const next = notificationToAlert(notification);
@@ -86,17 +88,35 @@ export function EmergencyNotificationOverlay() {
       }
     };
 
+    const handleNotificationResponse = (response: Notifications.NotificationResponse, shouldNavigate: boolean) => {
+      if (!response?.notification?.request?.identifier) return;
+      const responseId = `${response.notification.request.identifier}:${response.actionIdentifier}:${response.notification.date}`;
+
+      // Prevent duplicate redirects when Android re-emits the launch intent on app resume
+      if (handledResponseKeysRef.current.has(responseId)) return;
+      handledResponseKeysRef.current.add(responseId);
+
+      void saveAndShow(response.notification, false);
+      setAlert(null);
+
+      // Only navigate if explicitly triggered by a fresh notification tap (within 10 seconds)
+      const notificationDateMs = response.notification.date ? response.notification.date * 1000 : Date.now();
+      const ageMs = Math.abs(Date.now() - notificationDateMs);
+      if (shouldNavigate && ageMs < 10000) {
+        router.push('/notification');
+      }
+    };
+
     const received = Notifications.addNotificationReceivedListener((notification) => {
       void saveAndShow(notification, true);
     });
     const responded = Notifications.addNotificationResponseReceivedListener((response) => {
-      void saveAndShow(response.notification, false);
-      setAlert(null);
-      router.push('/notification');
+      handleNotificationResponse(response, true);
     });
     void Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (response) void saveAndShow(response.notification, false);
+      if (response) handleNotificationResponse(response, false);
     });
+
     return () => {
       received.remove();
       responded.remove();

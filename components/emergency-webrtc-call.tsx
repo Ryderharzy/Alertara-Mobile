@@ -1,9 +1,11 @@
 import { useAuth } from '@/context/auth-context';
+import { useTranslate } from '@/hooks/useTranslate';
 import { FontAwesome5 } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  Modal,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -12,6 +14,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import {
@@ -24,7 +27,9 @@ import {
 } from 'react-native-webrtc';
 import InCallManager from 'react-native-incall-manager';
 import { playAlertaraActionSound } from '@/services/sound/action-sounds';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { io, Socket } from 'socket.io-client';
+import { qcGeoJson, sanAgustinGeoJson } from '@/data/qc-geojson';
 
 const SIGNALING_URL = (process.env.EXPO_PUBLIC_SOCKET_URL || 'https://emergency-comm.alertaraqc.com').replace(/\/$/, '');
 const INTEGRATED_API_KEY = 'EMERGENCY-SYSTEM-INTEGRATED-KEY-2026';
@@ -84,8 +89,6 @@ function loadRuntimeIceServers() {
           const urls = Array.isArray(server?.urls) ? server.urls : [server?.urls];
           return urls.some((url: any) => /^turns?:/i.test(String(url || '')));
         });
-        // A stale STUN-only endpoint must not erase valid TURN credentials
-        // bundled into the development or production mobile build.
         if (liveTurnAvailable || !runtimeTurnAvailable) {
           runtimeIceServers = validServers;
           runtimeTurnAvailable = liveTurnAvailable;
@@ -106,6 +109,52 @@ function loadRuntimeIceServers() {
   return request;
 }
 
+const ALL_QC_BARANGAYS = [
+  "Alicia", "Amihan", "Apolonio Samson", "Baesa", "Bagbag", "Bagong Lipunan Ng Crame", "Bagong Pag-asa", "Bagong Silangan",
+  "Bagumbayan", "Bagumbuhay", "Bayanihan", "Balingasa", "Balumbato", "Batasan Hills", "Blue Ridge A", "Blue Ridge B",
+  "Botocan", "Bungad", "Camp Aguinaldo", "Capri", "Central", "Claro", "Commonwealth", "Culiat", "Damar", "Damayan",
+  "Damayan Lagi", "Dampalit", "Del Monte", "Dioquino Zobel", "Doña Aurora", "Doña Imelda", "Doña Josefa", "Duyan-duyan",
+  "E. Rodriguez", "Escopa I", "Escopa II", "Escopa III", "Escopa IV", "Fairview", "Gintong Silahis", "Greater Lagro",
+  "Gulod", "Holy Spirit", "Horseshoe", "Immaculate Conception", "Kaligayahan", "Kalusugan", "Kamias", "Kamuning", "Katipunan",
+  "Kaunlaran", "Kristong Hari", "Krus Na Ligas", "Laging Handa", "Lourdes", "Loyola Heights", "Maharlika", "Malaya",
+  "Mangga", "Manresa", "Mariana", "Mariblo", "Marilag", "Masagana", "Masambong", "Maug", "Maysilo", "Milagrosa", "Nagkaisang Nayon",
+  "Nayon Kaunlaran", "North Fairview", "Novaliches Proper", "Obrero", "Old Capitol Site", "Paang Bundok", "Pag-ibig Sa Nayon",
+  "Paligsahan", "Paltok", "Pansol", "Paraiso", "Payatas", "Phil-Am", "Pinagkaisahan", "Project 6", "Quirino 2-A", "Quirino 2-B",
+  "Quirino 2-C", "Quirino 3-A", "Ramon Magsaysay", "Roxas", "Sacred Heart", "Saint Peter", "Salvacion", "San Agustin",
+  "San Antonio", "San Bartolome", "San Isidro", "San Jose", "San Martin De Porres", "San Pedro", "San Roque", "San Vicente",
+  "Santa Lucia", "Santa Monica", "Santa Teresita", "Santo Cristo", "Santo Niño", "Santol", "Sauyo", "Siena", "Sikatuna Village",
+  "Silangan", "Socorro", "South Triangle", "Saint Ignatius", "Talayan", "Talipapa", "Tandang Sora", "Tatalon", "Teachers Village East",
+  "Teachers Village West", "U.P. Campus", "U.P. Village", "Valencia", "Vasra", "Veterans Village", "Villa Maria Clara",
+  "West Kamias", "West Triangle", "White Plains"
+];
+
+function isPointInPolygon(point: {lat: number, lon: number}, vs: any[][][]) {
+  let x = point.lon, y = point.lat;
+  let inside = false;
+  for (let i = 0; i < vs.length; i++) {
+    let polygon = vs[i];
+    for (let j = 0; j < polygon.length; j++) {
+      let ring = polygon[j];
+      for (let k = 0, l = ring.length - 1; k < ring.length; l = k++) {
+        let xi = ring[k][0], yi = ring[k][1];
+        let xj = ring[l][0], yj = ring[l][1];
+        let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+    }
+  }
+  return inside;
+}
+
+function detectQuezonCityBarangay(lat: number, lon: number) {
+  for (const feature of qcGeoJson.features) {
+    if (isPointInPolygon({lat, lon}, feature.geometry.coordinates)) {
+      return { inQC: true, barangay: feature.properties.name };
+    }
+  }
+  return { inQC: false, barangay: null };
+}
+
 type CallState = 'requesting' | 'connecting' | 'ringing' | 'connected' | 'ended' | 'failed';
 type ChatItem = { id: string; text: string; sender: 'user' | 'admin'; timestamp: number };
 type EmergencyWebRTCCallProps = { onClose?: () => void; onMinimize?: () => void };
@@ -121,8 +170,6 @@ function createCallPeerConnection(forceRelay = false) {
       ...(forceRelay && runtimeTurnAvailable ? { iceTransportPolicy: 'relay' as const } : {}),
     });
   } catch (error) {
-    // A broken deployment-time TURN value must not prevent Socket.IO chat or
-    // call end events from working. Audio can still use STUN where possible.
     console.warn('Invalid TURN configuration; continuing with STUN only.', error);
     return new RTCPeerConnection({ iceServers: STUN_ICE_SERVERS });
   }
@@ -147,6 +194,7 @@ async function requestMicrophonePermission() {
 
 export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCallProps = {}) {
   const { userProfile } = useAuth();
+  const { t } = useTranslate();
   const [callState, setCallState] = useState<CallState>('requesting');
   const [status, setStatus] = useState('Requesting microphone and location access...');
   const [elapsed, setElapsed] = useState(0);
@@ -158,6 +206,82 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
   const [chatStatus, setChatStatus] = useState('Connecting call chat...');
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
+  const [autoDetectedBarangay, setAutoDetectedBarangay] = useState<string | null>(null);
+  const [callerSelectedBarangay, setCallerSelectedBarangay] = useState<string | null>(null);
+  const [adminSelectedBarangay, setAdminSelectedBarangay] = useState<string | null>(null);
+  const [locationInQC, setLocationInQC] = useState<boolean | null>(null);
+  const [locationAccuracyWarning, setLocationAccuracyWarning] = useState(false);
+  const [barangayModalVisible, setBarangayModalVisible] = useState(false);
+  const [barangaySearchQuery, setBarangaySearchQuery] = useState('');
+
+  const effectiveBarangay = callerSelectedBarangay || adminSelectedBarangay || autoDetectedBarangay || 'Unknown';
+
+  const promptPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const promptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptActiveRef = useRef<boolean>(false);
+
+  const stopLocationPrompt = useCallback(() => {
+    promptActiveRef.current = false;
+    if (promptTimerRef.current) {
+      clearTimeout(promptTimerRef.current);
+      promptTimerRef.current = null;
+    }
+    if (promptPlayerRef.current) {
+      try {
+        promptPlayerRef.current.pause();
+      } catch {}
+      promptPlayerRef.current = null;
+    }
+  }, []);
+
+  const promptLangRef = useRef<'en' | 'fil'>('en');
+
+  const playLocationPromptLoop = useCallback(() => {
+    stopLocationPrompt();
+    promptActiveRef.current = true;
+
+    const initialLang = String(userProfile?.nationality || 'en').toLowerCase();
+    promptLangRef.current = (initialLang === 'fil' || initialLang === 'tl' || initialLang === 'tagalog' || initialLang === 'filipino') ? 'fil' : 'en';
+
+    const playNext = async () => {
+      if (!promptActiveRef.current) return;
+      const currentLang = promptLangRef.current;
+      const filename = currentLang === 'fil' ? 'call-location-fil.mp3' : 'call-location-en.mp3';
+      const audioUrl = `${SIGNALING_URL}/assets/audio/call/${filename}`;
+
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: false,
+          shouldRouteThroughEarpiece: false,
+          allowsRecording: true,
+          interruptionMode: 'mixWithOthers',
+        });
+        const player = createAudioPlayer({ uri: audioUrl }, { downloadFirst: true });
+        promptPlayerRef.current = player;
+        player.play();
+
+        const sub = player.addListener('playbackStatusUpdate', (status: any) => {
+          if (status.isLoaded && status.didJustFinish) {
+            try { sub.remove(); } catch {}
+            if (!promptActiveRef.current) return;
+            promptLangRef.current = currentLang === 'fil' ? 'en' : 'fil';
+            promptTimerRef.current = setTimeout(() => {
+              if (promptActiveRef.current) {
+                playNext();
+              }
+            }, 2500);
+          }
+        });
+      } catch (err) {
+        console.warn('[call][mobile] Prompt playback error:', err);
+        promptLangRef.current = currentLang === 'fil' ? 'en' : 'fil';
+      }
+    };
+
+    playNext();
+  }, [stopLocationPrompt, userProfile?.nationality]);
+
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const transferPeerRef = useRef<RTCPeerConnection | null>(null);
@@ -168,6 +292,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
   const pendingTransferCandidatesRef = useRef<RTCIceCandidate[]>([]);
   const transferNegotiationIdRef = useRef<string | null>(null);
   const transferNegotiationStartedAtRef = useRef(0);
+  const offerRefreshInFlightRef = useRef(false);
   const transferRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const transferPayloadRef = useRef<any | null>(null);
   const transferOfferPayloadRef = useRef<any | null>(null);
@@ -214,8 +339,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       InCallManager.setKeepScreenOn(true);
       callAudioStartedRef.current = true;
     }
-    // Emergency calls should be audible without requiring the user to hold
-    // the phone to the earpiece. Wired/Bluetooth routes still take priority.
     if (Platform.OS === 'android') {
       InCallManager.setForceSpeakerphoneOn(true);
       InCallManager.setSpeakerphoneOn(true);
@@ -274,6 +397,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
   }, [stopSpeakingMonitor]);
 
   const cleanup = useCallback(() => {
+    stopLocationPrompt();
     stopSpeakingMonitor();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
@@ -344,6 +468,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
 
   const endCall = useCallback(async (notifyAdmin = true) => {
     if (endingRef.current) return;
+    stopLocationPrompt();
     void playAlertaraActionSound('callEnd');
     endingRef.current = true;
     const callId = callIdRef.current;
@@ -358,7 +483,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
         reason: 'mobile-user-ended',
         endedAt: new Date().toISOString(),
       }, room);
-      // Give Socket.IO a moment to flush the hangup before disconnecting.
       await new Promise((resolve) => setTimeout(resolve, 120));
     }
     cleanup();
@@ -609,9 +733,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
             : 'Unable to join call chat');
         });
       });
-      // Re-register a completed Emergency-Com route after a network change.
-      // The server then re-publishes the same private room to ERS; it never
-      // exposes the call to the Emergency-Com admin lobby.
       if (transferPayloadRef.current && ersTransferApprovedRef.current) {
         socket.timeout(8000).emit('route-call-to-ers', transferPayloadRef.current, () => {});
       }
@@ -650,8 +771,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
         && transferNegotiationIdRef.current
         && String(payload.negotiationId) !== transferNegotiationIdRef.current
       ) return;
-      // Lobby/admin and ERS negotiations can overlap. Never apply the answer
-      // from one leg to the other peer connection.
       const targetPeer = isErsAnswer
         ? (transferPeerRef.current || (ersTransferRequestedRef.current ? peerRef.current : null))
         : peerRef.current;
@@ -720,11 +839,25 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
     });
     socket.on('hangup', (payload: any) => {
       if (payloadMatchesActiveCall(payload)) {
+        stopLocationPrompt();
         void endCall(false).finally(() => onCloseRef.current?.());
       }
     });
     socket.on('call-transfer', (payload: any) => {
-      if (payloadMatchesActiveCall(payload)) setStatus('The Emergency Respondent is transferring your call. Please stay connected.');
+      if (payloadMatchesActiveCall(payload)) {
+        stopLocationPrompt();
+        setStatus('The Emergency Respondent is transferring your call. Please stay connected.');
+      }
+    });
+    socket.on('start-location-prompt', (payload: any) => {
+      if (payloadMatchesActiveCall(payload)) {
+        playLocationPromptLoop();
+      }
+    });
+    socket.on('stop-location-prompt', (payload: any) => {
+      if (payloadMatchesActiveCall(payload)) {
+        stopLocationPrompt();
+      }
     });
     const prepareErsTransferOffer = async (payload: any) => {
       const callId = callIdRef.current;
@@ -741,9 +874,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
           && !['failed', 'closed', 'disconnected'].includes(activeTransferPeer.connectionState)
           && negotiationAge < 10000
         ) {
-          // ERS can ask once for a fresh offer when it joins and once again
-          // from its safety timer. Keep the first negotiation alive instead
-          // of replacing it with a second peer and mixing their SDP/ICE.
           return;
         }
         setStatus('Connecting your call to the Emergency Response System...');
@@ -801,8 +931,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
               }, 500);
               return;
             }
-            // A media-path failure must not tear down Socket.IO. Keep emergency
-            // chat available while the caller decides whether to retry voice.
             setCallState('failed');
             setStatus('Voice connection failed. Call chat is still connected; retry voice when ready.');
           }
@@ -850,8 +978,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
         transferPeerRef.current?.close();
         transferPeerRef.current = null;
         transferNegotiationStartedAtRef.current = 0;
-        // Preserve the signaling socket and conversation so text updates are
-        // still delivered even if WebRTC negotiation fails.
         setCallState('failed');
         setStatus('Unable to connect voice. Call chat remains available.');
       }
@@ -861,21 +987,64 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       socket.on(eventName, prepareErsTransferOffer);
     });
     socket.on('request-offer', async (payload: any) => {
-      const peer = peerRef.current;
-      if (!peer || !payloadMatchesActiveCall(payload)) return;
-      if ((peer as any).signalingState && (peer as any).signalingState !== 'stable') return;
+      if (!payloadMatchesActiveCall(payload)) return;
+      if (offerRefreshInFlightRef.current) return;
+      const currentCallId = callIdRef.current;
+      const currentRoom = roomRef.current;
+      const localStream = localStreamRef.current;
+      if (!currentCallId || !currentRoom || !localStream) return;
+
       try {
+        offerRefreshInFlightRef.current = true;
+        if (peerRef.current) {
+          try { peerRef.current.close(); } catch {}
+          peerRef.current = null;
+        }
+
+        const peer = createCallPeerConnection(runtimeTurnAvailable && relayRetryUsedRef.current);
+        const peerEvents = peer as any;
+        peerRef.current = peer;
+        localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+
+        peerEvents.addEventListener('icecandidate', (event: any) => {
+          if (!event.candidate) return;
+          const serializedCandidate = event.candidate.toJSON?.() || event.candidate;
+          socket.emit('candidate', { candidate: serializedCandidate, callId: currentCallId, room: currentRoom }, currentRoom);
+        });
+        peerEvents.addEventListener('track', attachRemoteAudio);
+        peerEvents.addEventListener('connectionstatechange', () => {
+          const state = peer.connectionState;
+          if (state === 'connected') {
+            setCallState('connected');
+            setStatus('Connected to emergency respondent');
+            startSpeakingMonitor();
+          } else if ((state === 'failed' || state === 'disconnected') && !endingRef.current) {
+            setStatus('Voice connection interrupted. Reconnecting...');
+          }
+        });
+        peerEvents.addEventListener('iceconnectionstatechange', () => {
+          const state = peer.iceConnectionState;
+          if (state === 'connected' || state === 'completed') {
+            setCallState('connected');
+            setStatus('Connected to emergency respondent');
+            startSpeakingMonitor();
+          }
+        });
+
         const offer = await peer.createOffer({ iceRestart: true });
         await peer.setLocalDescription(offer);
+        socket.emit('join', currentRoom);
         socket.emit('offer', {
           sdp: offer,
-          callId: callIdRef.current,
-          room: roomRef.current,
+          callId: currentCallId,
+          room: currentRoom,
           caller: { id: userProfile?.id, name: userProfile?.name, email: userProfile?.email, phone: userProfile?.phone },
           resumed: true,
-        }, roomRef.current);
+        }, currentRoom);
       } catch (error) {
         console.warn('[call][mobile] unable to refresh offer', error);
+      } finally {
+        offerRefreshInFlightRef.current = false;
       }
     });
   }, [appendMessage, attachRemoteAudio, endCall, flushPendingCallMessages, payloadMatchesActiveCall, startSpeakingMonitor, userProfile]);
@@ -893,14 +1062,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       const microphoneGranted = await requestMicrophonePermission();
       if (!microphoneGranted) throw new Error('Microphone permission is required for an emergency call.');
 
-      const locationPermission = await Location.requestForegroundPermissionsAsync();
-      let location: Location.LocationObject | null = null;
-      if (locationPermission.status === 'granted') {
-        location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null);
-      }
-
-      setCallState('connecting');
-      setStatus('Connecting to Emergency Communication admin...');
       const localStream = await mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -924,8 +1085,16 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       callIdRef.current = callId;
       roomRef.current = room;
 
-      // Emergency-Com answers live calls first. The private room is announced
-      // to the admin call lobby and can be manually transferred later.
+      const baseOfferPayload = {
+        callId,
+        room,
+        userId: userProfile?.id || null,
+        userName: userProfile?.name || 'Emergency User',
+        caller: callerPayload(),
+        location: null,
+      };
+
+      await persistOpenEmergencyCall(baseOfferPayload);
 
       const socket = io(SIGNALING_URL, {
         path: '/socket.io',
@@ -937,29 +1106,48 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
       });
       socketRef.current = socket;
       configureSocket(socket);
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Emergency call service timed out.')), 12000);
-        socket.once('connect', () => { clearTimeout(timer); resolve(); });
-        socket.once('connect_error', (error) => { clearTimeout(timer); reject(error); });
+
+      socket.on('barangay-update', (payload: any) => {
+        if (payload?.barangay) {
+          if (payload.source === 'admin') setAdminSelectedBarangay(payload.barangay);
+          else if (payload.source === 'caller') setCallerSelectedBarangay(payload.barangay);
+        }
       });
 
-      socket.emit('join', room);
-      const baseOfferPayload = {
-        callId,
-        room,
-        userId: userProfile?.id || null,
-        userName: userProfile?.name || 'Emergency User',
-        caller: callerPayload(),
-        location: location ? {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy,
-        } : null,
-      };
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const lat = loc.coords.latitude;
+          const lon = loc.coords.longitude;
+          const accuracy = loc.coords.accuracy ?? 0;
+          if (accuracy > 100) setLocationAccuracyWarning(true);
 
-      // Persist first so the admin Open tab shows the call even if WebRTC
-      // negotiation fails or Android rejects a stale local SDP state.
-      await persistOpenEmergencyCall(baseOfferPayload);
+          const detection = detectQuezonCityBarangay(lat, lon);
+          setLocationInQC(detection.inQC);
+          if (detection.barangay) setAutoDetectedBarangay(detection.barangay);
+
+          socket.emit('location-update', {
+            coords: { latitude: lat, longitude: lon, accuracy },
+            inQC: detection.inQC,
+            autoDetectedBarangay: detection.barangay,
+            callId: callIdRef.current,
+            room: roomRef.current,
+          });
+        } else {
+          setLocationInQC(false);
+        }
+      } catch {}
+
+      if (!socket.connected) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('Emergency call service timed out.')), 12000);
+          socket.once('connect', () => { clearTimeout(timer); resolve(); });
+          socket.once('connect_error', (error) => { clearTimeout(timer); reject(error); });
+        });
+      }
+
+      socket.emit('join', room);
 
       await iceServersReady;
       let offer: any = null;
@@ -988,9 +1176,8 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
               setCallState('connected');
               setStatus('Connected to Emergency Communication admin');
               startSpeakingMonitor();
+              playLocationPromptLoop();
             } else if (state === 'failed') {
-              // The lobby peer is superseded as soon as the call is forwarded to
-              // ERS. Its failure must not overwrite the real transferred call.
               if (!ersTransferRequestedRef.current && !transferPeerRef.current) {
                 void endCall(true).then(() => {
                   setCallState('failed');
@@ -1022,8 +1209,6 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
         ...baseOfferPayload,
         sdp: offer,
       };
-      // The caller joins a unique private room, then announces it to the
-      // Emergency-Com admin call lobby. No ERS transfer happens until admin action.
       await persistOpenEmergencyCall(offerPayload);
       socket.emit('offer', offerPayload, CALL_LOBBY_ROOM);
       setCallState('ringing');
@@ -1117,16 +1302,17 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
         <View style={styles.topBar}>
           <View>
             <Text style={styles.eyebrow}>ALERTARA QC</Text>
-            <Text style={styles.title}>Emergency Call</Text>
+            <Text style={styles.title}>{t("call.title", "Emergency Call")}</Text>
           </View>
           <View style={styles.topActions}>
-            <Pressable accessibilityLabel="Minimize emergency call" style={styles.minimizeButton} onPress={onMinimize}>
+            <Pressable accessibilityLabel={t("call.minimize", "Minimize call")} style={styles.minimizeButton} onPress={onMinimize}>
               <FontAwesome5 name="minus" size={20} color="#ffffff" />
             </Pressable>
           </View>
         </View>
 
-        <View style={styles.callCard}>
+        <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={true}>
+          <View style={styles.callCard}>
           <View style={styles.phoneCircle}><FontAwesome5 name="phone-alt" size={30} color="#ffffff" /></View>
           <Text style={styles.status}>{status}</Text>
           <Text style={styles.timer}>{formatDuration(elapsed)}</Text>
@@ -1134,25 +1320,54 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
           <View style={styles.speakersRow}>
             <View style={[styles.speakerCard, userSpeaking && styles.speakerActive]}>
               <FontAwesome5 name={muted ? 'microphone-slash' : 'microphone'} size={22} color={muted ? '#f6ad55' : '#d8ebe8'} />
-              <Text style={styles.speakerName}>You</Text>
-              <Text style={styles.speakerState}>{muted ? 'Muted' : userSpeaking ? 'Speaking' : 'Listening'}</Text>
+              <Text style={styles.speakerName}>{t("messages.you", "You")}</Text>
+              <Text style={styles.speakerState}>{muted ? t("call.muted", "Muted") : userSpeaking ? t("call.speaking", "Speaking") : t("call.listening", "Listening")}</Text>
             </View>
             <View style={[styles.speakerCard, adminSpeaking && styles.speakerActive]}>
               <FontAwesome5 name="microphone" size={22} color="#d8ebe8" />
-              <Text style={styles.speakerName}>Emergency Respondent</Text>
-              <Text style={styles.speakerState}>{adminSpeaking ? 'Speaking' : callState === 'connected' ? 'Listening' : 'Waiting'}</Text>
+              <Text style={styles.speakerName}>{t("call.emergencyRespondent", "Emergency Respondent")}</Text>
+              <Text style={styles.speakerState}>{adminSpeaking ? t("call.speaking", "Speaking") : callState === 'connected' ? t("call.listening", "Listening") : t("call.waiting", "Waiting")}</Text>
             </View>
           </View>
 
           <View style={styles.controls}>
             <Pressable style={[styles.controlButton, muted && styles.controlButtonActive]} onPress={toggleMute} disabled={!localStreamRef.current}>
               <FontAwesome5 name={muted ? 'microphone-slash' : 'microphone'} size={20} color="#ffffff" />
-              <Text style={styles.controlLabel}>{muted ? 'Unmute' : 'Mute'}</Text>
+              <Text style={styles.controlLabel}>{muted ? t("call.unmute", "Unmute") : t("call.mute", "Mute")}</Text>
             </Pressable>
             <Pressable style={styles.endButton} onPress={() => void endAndExit()}>
               <FontAwesome5 name="phone-slash" size={19} color="#ffffff" />
-              <Text style={styles.endLabel}>{callState === 'ringing' ? 'Cancel' : 'End Call'}</Text>
+              <Text style={styles.endLabel}>{callState === 'ringing' ? t("action.cancel", "Cancel") : t("call.endCall", "End Call")}</Text>
             </Pressable>
+          </View>
+
+          <View style={styles.locationCard}>
+            <View style={styles.locationHeaderRow}>
+              <FontAwesome5 name="map-marker-alt" size={14} color="#38bdf8" />
+              <Text style={styles.locationTitle}>Kasalukuyang Lokasyon ng Tawag</Text>
+            </View>
+            {locationInQC === false ? (
+              <Text style={styles.locationNotice}>
+                Your current location could not be matched to a Quezon City barangay. Please select your barangay manually.
+              </Text>
+            ) : locationAccuracyWarning ? (
+              <Text style={styles.locationNoticeWarning}>
+                Your location may be inaccurate. Please confirm your barangay.
+              </Text>
+            ) : null}
+            <View style={styles.locationRow}>
+              <Text style={styles.locationLabel}>Natukoy na Barangay:</Text>
+              <Text style={styles.locationValue}>{effectiveBarangay}</Text>
+            </View>
+            <View style={styles.locationActionsRow}>
+              <TouchableOpacity
+                style={styles.changeBarangayBtn}
+                onPress={() => setBarangayModalVisible(true)}
+              >
+                <FontAwesome5 name="edit" size={12} color="#ffffff" />
+                <Text style={styles.changeBarangayText}>Baguhin ang Barangay</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {(callState === 'failed' || callState === 'ended') && (
@@ -1161,6 +1376,63 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
             </Pressable>
           )}
         </View>
+
+        <Modal
+          visible={barangayModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setBarangayModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Pumili ng Barangay (Quezon City)</Text>
+                <TouchableOpacity onPress={() => setBarangayModalVisible(false)}>
+                  <FontAwesome5 name="times" size={18} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Maghanap ng barangay..."
+                placeholderTextColor="#64748b"
+                value={barangaySearchQuery}
+                onChangeText={setBarangaySearchQuery}
+              />
+              <ScrollView style={styles.barangayList}>
+                {ALL_QC_BARANGAYS.filter((b) =>
+                  !barangaySearchQuery || b.toLowerCase().includes(barangaySearchQuery.toLowerCase())
+                ).map((item) => (
+                  <TouchableOpacity
+                    key={item}
+                    style={styles.barangayOption}
+                    onPress={() => {
+                      setCallerSelectedBarangay(item);
+                      setBarangayModalVisible(false);
+                      const socket = socketRef.current;
+                      if (socket && callIdRef.current) {
+                        socket.emit('barangay-update', {
+                          source: 'caller',
+                          barangay: item,
+                          callId: callIdRef.current,
+                          room: roomRef.current,
+                        });
+                        socket.emit('stop-location-prompt', {
+                          callId: callIdRef.current,
+                          room: roomRef.current,
+                        });
+                      }
+                    }}
+                  >
+                    <Text style={styles.barangayOptionText}>{item}</Text>
+                    {effectiveBarangay === item && (
+                      <FontAwesome5 name="check" size={14} color="#38bdf8" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
 
         <View style={styles.chatCard}>
           <View style={styles.chatHeader}>
@@ -1192,6 +1464,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
             </Pressable>
           </View>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1200,6 +1473,8 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#071816' },
   screen: { flex: 1, padding: 18, gap: 14 },
+  scrollContent: { flex: 1 },
+  scrollContainer: { flexGrow: 1, justifyContent: 'center', gap: 14, paddingBottom: 28 },
   hiddenRemoteAudio: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1223,11 +1498,11 @@ const styles = StyleSheet.create({
   endLabel: { color: '#fff', fontWeight: '900', marginTop: 3 },
   retryButton: { marginTop: 14, borderRadius: 12, borderWidth: 1, borderColor: '#4c9b93', paddingHorizontal: 24, paddingVertical: 10 },
   retryText: { color: '#81ddd4', fontWeight: '800' },
-  chatCard: { flex: 1, minHeight: 230, borderRadius: 20, borderWidth: 1, borderColor: '#1d4641', backgroundColor: '#0d2421', overflow: 'hidden' },
+  chatCard: { minHeight: 300, borderRadius: 20, borderWidth: 1, borderColor: '#1d4641', backgroundColor: '#0d2421', overflow: 'hidden' },
   chatHeader: { paddingHorizontal: 15, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1d4641', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   chatTitle: { color: '#fff', fontWeight: '900', fontSize: 16 },
   chatHint: { color: '#789b96', fontSize: 11 },
-  messages: { flex: 1 },
+  messages: { maxHeight: 220, minHeight: 140 },
   messagesContent: { padding: 12, gap: 8 },
   emptyChat: { color: '#718f8b', textAlign: 'center', marginTop: 28, fontSize: 12 },
   messageBubble: { maxWidth: '84%', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
@@ -1238,6 +1513,23 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', gap: 8, padding: 10, borderTopWidth: 1, borderTopColor: '#1d4641' },
   input: { flex: 1, minHeight: 44, borderRadius: 13, backgroundColor: '#132f2b', color: '#fff', paddingHorizontal: 13 },
   sendButton: { minWidth: 66, borderRadius: 13, backgroundColor: '#248f84', alignItems: 'center', justifyContent: 'center' },
+  locationCard: { width: '100%', marginTop: 14, padding: 12, borderRadius: 14, backgroundColor: 'rgba(56, 189, 248, 0.08)', borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.25)', gap: 6 },
+  locationHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  locationTitle: { color: '#38bdf8', fontSize: 12, fontWeight: '800' },
+  locationNotice: { color: '#fbbf24', fontSize: 11, fontStyle: 'italic' },
+  locationNoticeWarning: { color: '#f87171', fontSize: 11, fontStyle: 'italic' },
+  locationRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 },
+  locationLabel: { color: '#94a3b8', fontSize: 12 },
+  locationValue: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  locationActionsRow: { marginTop: 6, flexDirection: 'row', justifyContent: 'flex-end' },
+  changeBarangayBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0284c7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  changeBarangayText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' },
+  modalContainer: { height: '75%', backgroundColor: '#0f172a', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, gap: 12 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  searchInput: { backgroundColor: '#1e293b', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: '#fff', fontSize: 14 },
+  barangayList: { flex: 1 },
+  barangayOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#1e293b' },
+  barangayOptionText: { color: '#e2e8f0', fontSize: 14, fontWeight: '600' },
 });
-
-
