@@ -7,37 +7,38 @@ import { useTheme } from "@/context/theme-context";
 import { useTranslate } from "@/hooks/useTranslate";
 import type { ChatMessage as ApiChatMessage } from "@/services/api/chat-service";
 import { chatService } from "@/services/api/chat-service";
+import { detectIntent } from "@/services/api/dialogflow-service";
 import {
-  emergencyReportService,
-  formatReportStatusLabel,
-  INCIDENT_STATUS_OPTIONS,
-  IncidentStatus,
-  parseReportIdFromThreadId,
-  statusLabelToKey,
-  statusToTranslationKey,
+    emergencyReportService,
+    formatReportStatusLabel,
+    INCIDENT_STATUS_OPTIONS,
+    IncidentStatus,
+    parseReportIdFromThreadId,
+    statusLabelToKey,
+    statusToTranslationKey,
 } from "@/services/api/emergency-report-service";
 import { mediaUploadService } from "@/services/api/media-upload-service";
-import { markConversationThreadRead, upsertConversationThread } from "@/utils/conversation-inbox";
 import { playAlertaraActionSound } from "@/services/sound/action-sounds";
+import { markConversationThreadRead, upsertConversationThread } from "@/utils/conversation-inbox";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View
 } from "react-native";
 
 type LocalChatMessage = {
@@ -51,31 +52,32 @@ type LocalChatMessage = {
 
 const promptMap: Record<string, string[]> = {
   Alert: [
-    "Type of alert?",
-    "Who is the source?",
-    "Latest data update?",
+    "What type of alert is this?",
+    "Who sent this notification?",
     "What should I do now?",
-    "Evac routes?",
-    "Emergency contacts?",
+    "Is this urgent?",
+    "How long will this last?",
+    "What are the safety guidelines?",
   ],
   Weather: [
-    "Rainfall or wind strength?",
-    "Flood risk level?",
-    "When does it pass?",
-    "Safe routes?",
-    "What to prepare?",
+    "What type of alert is this?",
+    "What should I do now?",
+    "How long will this last?",
+    "Is my area affected?",
+    "What are the safety guidelines?",
   ],
   Fire: [
-    "Evacuation routes?",
-    "Shelter locations?",
-    "Air quality/smoke?",
+    "What type of alert is this?",
+    "What should I do now?",
+    "Is my area affected?",
     "Who to call?",
+    "What are the safety guidelines?",
   ],
   General: [
-    "How to stay informed?",
-    "Nearest help desk?",
-    "Emergency contacts?",
-    "Preparedness checklist?",
+    "What type of alert is this?",
+    "Who sent this notification?",
+    "What should I do now?",
+    "How long will this last?",
   ],
 };
 
@@ -501,16 +503,38 @@ export default function ChatScreen() {
         setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
       }
     } else {
-      // Use simulated bot for incident-related chats
-      setTimeout(() => {
+      // Use Dialogflow AI for incident-related chats
+      try {
+        const response = await detectIntent({
+          message: trimmed,
+          context: {
+            notificationTitle: alertTitle,
+            notificationCategory: categoryLabel,
+            notificationSeverity: statusLabel || 'MEDIUM',
+            notificationDescription: '',
+          },
+        });
+        
         const botMsg: LocalChatMessage = {
           id: `b-${Date.now()}`,
           from: "bot" as const,
-          text: generateBotReply(trimmed),
+          text: response.replyText || generateBotReply(trimmed),
           sentAt: Date.now(),
         };
         setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
-      }, 900);
+      } catch (error) {
+        console.error('Dialogflow error, falling back to bot:', error);
+        // Fallback to simple bot response if Dialogflow fails
+        setTimeout(() => {
+          const botMsg: LocalChatMessage = {
+            id: `b-${Date.now()}`,
+            from: "bot" as const,
+            text: generateBotReply(trimmed),
+            sentAt: Date.now(),
+          };
+          setMessages((prev) => [...prev, botMsg].slice(-MAX_HISTORY));
+        }, 900);
+      }
     }
   };
 
@@ -525,6 +549,15 @@ export default function ChatScreen() {
       },
     ]);
   };
+
+  // Reset AI-only conversations when closed
+  useEffect(() => {
+    return () => {
+      if (!supportsResponseTeamChat) {
+        void AsyncStorage.removeItem(storageKey);
+      }
+    };
+  }, [storageKey, supportsResponseTeamChat]);
 
   const handleMediaPicker = async () => {
     try {
