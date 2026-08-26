@@ -15,7 +15,9 @@ import { useAuth } from "@/context/auth-context";
 import { useTheme } from "@/context/theme-context";
 import { systemClusters, systemRegistry } from "@/data/central-command-systems";
 import { subscribeNotificationUnreadCount } from "@/data/notification-center";
+import { usePreferences } from "@/context/preferences-context";
 import { useTranslate } from "@/hooks/useTranslate";
+import { getTranslation } from "@/data/emergency-translations";
 import { loadConversationInbox } from "@/utils/conversation-inbox";
 import {
   alertFeedService,
@@ -35,11 +37,57 @@ import {
     View,
 } from "react-native";
 
+function translateDynamicAlertText(text: string | null | undefined, language: string): string {
+  if (!text) return "";
+  let cleaned = String(text)
+    .replace(/Ã,Â·|Ã‚Â·/g, " • ")
+    .replace(/Ã¢â‚¬Â¢|â€¢|\u2022/g, " • ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (language === "en") return cleaned;
+
+  const directMatch = getTranslation(cleaned, language);
+  if (directMatch && directMatch !== cleaned) {
+    return directMatch;
+  }
+
+  let translated = cleaned;
+  translated = translated.replace(/TEST ALERT (\d+)/gi, "MGA PAGSUBOK NA ALERTO $1");
+  translated = translated.replace(/^TEST ALERT$/gi, "MGA PAGSUBOK NA ALERTO");
+  translated = translated.replace(/^THIS IS A TEST$/gi, "ITO AY ISANG PAGSUBOK");
+  translated = translated.replace(/QUEZON CITY RAINFALL ADVISORY/gi, "ABISO SA ULAN SA QUEZON CITY");
+  translated = translated.replace(/TEST/gi, "PAGSUBOK");
+  translated = translated.replace(
+    /A public safety incident has been reported\.?/gi,
+    "Naiulat ang isang insidente sa kaligtasan ng publiko."
+  );
+  translated = translated.replace(
+    /Affected area:\s*the affected area in Quezon City\.?/gi,
+    "Apektadong lugar: ang apektadong lugar sa Quezon City."
+  );
+  translated = translated.replace(
+    /Protective action:\s*Avoid the affected area\.?/gi,
+    "Paraan ng pag-iingat: Iwasan ang apektadong lugar."
+  );
+  translated = translated.replace(
+    /WEATHER FORECAST - QUEZON CITY/gi,
+    "TAYA NG PANAHON - QUEZON CITY"
+  );
+  translated = translated.replace(
+    /PRECAUTIONS:\s*/gi,
+    "MGA PAG-IINGAT: "
+  );
+
+  return translated;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
   const { userProfile } = useAuth();
   const { t } = useTranslate();
+  const { language } = usePreferences();
 
   const [activeClusterId, setActiveClusterId] = useState(systemClusters[0].id);
   const [activeAlerts, setActiveAlerts] = useState<AlertFeedItem[]>([]);
@@ -223,10 +271,10 @@ export default function HomeScreen() {
           <View style={styles.welcomeTitleRow}>
             <View style={{ flex: 1 }}>
               <ThemedText style={styles.welcomeEyebrow}>
-                {isLoggedIn ? t("home.title") : t("home.guestMode")}
+                {isLoggedIn ? t("home.welcomeTitle", "Welcome to Alertara") : t("home.guestMode", "Guest Mode")}
               </ThemedText>
               <ThemedText style={styles.welcomeText}>
-                {isLoggedIn ? `${t("home.greeting")}, ${greetingName}!` : t("home.welcome")}
+                {isLoggedIn ? `${t("home.hello", "Hello")}, ${greetingName}!` : t("home.welcomeTitle", "Welcome to Alertara")}
               </ThemedText>
             </View>
             <View
@@ -260,7 +308,7 @@ export default function HomeScreen() {
         <View style={styles.glanceSection}>
           {carouselAlerts.length > 1 && (
             <View style={styles.carouselHeader}>
-              <ThemedText style={styles.carouselTitle}>Live notifications</ThemedText>
+              <ThemedText style={styles.carouselTitle}>{t("home.liveNotifications", "Live Notifications")}</ThemedText>
               <View style={styles.carouselControls}>
                 <Pressable
                   style={[
@@ -333,19 +381,23 @@ export default function HomeScreen() {
                     <>
                       <View style={styles.alertMetaRow}>
                         <ThemedText style={styles.alertCategory} numberOfLines={1}>
-                          {alert.category}
+                          {translateDynamicAlertText(alert.category, language)}
                         </ThemedText>
                         <View style={styles.severityBadge}>
                           <ThemedText style={styles.severityText}>
-                            {alert.severity.toUpperCase()}
+                            {alert.severity.toUpperCase() === "HIGH"
+                              ? t("notifications.highSeverity", "MATAAS")
+                              : alert.severity.toUpperCase() === "MEDIUM"
+                                ? t("notifications.mediumSeverity", "KATAMTAMAN")
+                                : t("notifications.lowSeverity", "MABABANG")}
                           </ThemedText>
                         </View>
                       </View>
                       <ThemedText style={styles.glanceTitle} numberOfLines={2}>
-                        {alert.title}
+                        {translateDynamicAlertText(alert.title, language)}
                       </ThemedText>
                       <ThemedText style={styles.glanceSubtitle} numberOfLines={3}>
-                        {alert.message}
+                        {translateDynamicAlertText(alert.message, language)}
                       </ThemedText>
                       <ThemedText style={styles.alertTimestamp}>
                         {new Date(alert.createdAt).toLocaleString()}
@@ -403,7 +455,7 @@ export default function HomeScreen() {
         {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
           <View style={styles.sectionTitleContainer}>
-            <ThemedText style={styles.sectionTitle}>Quick Actions</ThemedText>
+            <ThemedText style={styles.sectionTitle}>{t("home.quickActions", "Quick Actions")}</ThemedText>
           </View>
           <View style={styles.quickActionsGrid}>
             <Pressable
@@ -415,35 +467,35 @@ export default function HomeScreen() {
                 size={22}
                 color="#fff"
               />
-              <ThemedText style={styles.quickActionText}>Report</ThemedText>
+              <ThemedText style={styles.quickActionText}>{t("navigation.report", "Report")}</ThemedText>
             </Pressable>
             <Pressable
               style={styles.quickActionCard}
               onPress={() => handleQuickAction("/map")}
             >
               <IconSymbol name="location" size={22} color="#fff" />
-              <ThemedText style={styles.quickActionText}>Map</ThemedText>
+              <ThemedText style={styles.quickActionText}>{t("navigation.map", "Map")}</ThemedText>
             </Pressable>
             <Pressable
               style={styles.quickActionCard}
               onPress={() => handleQuickAction("/notification")}
             >
               <IconSymbol name="bell" size={22} color="#fff" />
-              <ThemedText style={styles.quickActionText}>Alerts</ThemedText>
+              <ThemedText style={styles.quickActionText}>{t("notifications.title", "Alerts")}</ThemedText>
             </Pressable>
             <Pressable
               style={styles.quickActionCard}
               onPress={() => handleQuickAction("/submit-tip")}
             >
               <IconSymbol name="paperplane.fill" size={22} color="#fff" />
-              <ThemedText style={styles.quickActionText}>Tip</ThemedText>
+              <ThemedText style={styles.quickActionText}>{t("reports.title", "Tip")}</ThemedText>
             </Pressable>
             <Pressable
               style={styles.quickActionCard}
               onPress={() => handleQuickAction("/me")}
             >
               <IconSymbol name="person" size={22} color="#fff" />
-              <ThemedText style={styles.quickActionText}>Profile</ThemedText>
+              <ThemedText style={styles.quickActionText}>{t("navigation.profile", "Profile")}</ThemedText>
             </Pressable>
           </View>
         </View>

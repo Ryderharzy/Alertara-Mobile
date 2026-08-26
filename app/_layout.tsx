@@ -1,3 +1,4 @@
+import "@/services/i18n";
 import {
     DarkTheme,
     DefaultTheme,

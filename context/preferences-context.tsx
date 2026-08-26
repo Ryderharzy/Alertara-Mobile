@@ -1,3 +1,4 @@
+import i18n from "@/services/i18n";
 import { useAuth } from "@/context/auth-context";
 import { userPreferenceService } from "@/services/api/user-preference-service";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -80,11 +81,19 @@ export const PreferencesProvider = ({
         ]);
 
         if (lang === "en" || lang === "fil" || lang === "tl") {
-          setLanguageState(lang);
+          const norm = (lang === "fil" || lang === "tl") ? "fil" : "en";
+          setLanguageState(norm);
+          i18n.changeLanguage(norm);
         } else if (lang) {
           await AsyncStorage.setItem("language", "en");
           setLanguageState("en");
+          i18n.changeLanguage("en");
+        } else {
+          // Sync default detected i18n language
+          const initialLang = i18n.language === "fil" ? "fil" : "en";
+          setLanguageState(initialLang);
         }
+
         if (notificationLang === "en" || notificationLang === "tl" || notificationLang === "fil" || notificationLang === "both") {
           setNotificationLanguageState(notificationLang);
         } else if (notificationLang) {
@@ -94,13 +103,14 @@ export const PreferencesProvider = ({
         if (alerts) setAlertPreferencesState(JSON.parse(alerts));
         if (history) setIncidentHistoryState(JSON.parse(history));
 
-        if (userProfile?.id) {
+        if (userProfile?.id && !lang) {
           try {
             const response = await userPreferenceService.getPreferences(userProfile.id);
             const remoteLang = (response?.data as any)?.language_preference || (response?.data as any)?.preferred_language;
             if (remoteLang === "en" || remoteLang === "fil" || remoteLang === "tl") {
               const normLang = (remoteLang === "fil" || remoteLang === "tl") ? "fil" : "en";
               setLanguageState(normLang);
+              i18n.changeLanguage(normLang);
               await AsyncStorage.setItem("language", normLang);
             }
             const remoteNotificationLang = response?.data?.notification_language;
@@ -133,12 +143,16 @@ export const PreferencesProvider = ({
         const normLang = (lang === "fil" || lang === "tl") ? "fil" : "en";
         setLanguageState(normLang);
         setNotificationLanguageState(normLang);
+        i18n.changeLanguage(normLang);
+
         await AsyncStorage.setItem("language", normLang);
         await AsyncStorage.setItem("notificationLanguage", normLang);
 
-        // Sync language_preference to backend
+        // Sync language_preference to backend asynchronously
         const targetBackendLang = normLang === "fil" ? "fil" : "en";
-        await userPreferenceService.saveLanguagePreference(targetBackendLang, userProfile?.id);
+        userPreferenceService.saveLanguagePreference(targetBackendLang, userProfile?.id).catch(err => {
+          console.warn("Offline or backend sync failed for language:", err);
+        });
 
         if (userProfile?.id) {
           try {

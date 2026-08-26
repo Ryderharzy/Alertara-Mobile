@@ -5,7 +5,6 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/context/theme-context';
-import { getTranslation } from '@/data/emergency-translations';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
@@ -15,8 +14,8 @@ export default function SettingsScreen() {
   const { t } = useTranslation();
 
   const languageOptions = [
-    { label: "English", value: "en" },
-    { label: "Tagalog", value: "tl" },
+    { label: t("settings.english", "English"), value: "en" },
+    { label: t("settings.filipino", "Filipino"), value: "fil" },
   ];
 
   const handleLanguageChange = async (newLanguage: string) => {
@@ -32,13 +31,13 @@ export default function SettingsScreen() {
       <Header />
       <ScrollView style={[styles.content, { backgroundColor: isDarkMode ? Colors.dark.background : Colors.light.background }]}>
         <ThemedView style={styles.titleContainer}>
-          <ThemedText type="title">{getTranslation("your_safety_first", language as any)}</ThemedText>
+          <ThemedText type="title">{t("settings.title", "Settings")}</ThemedText>
         </ThemedView>
 
-        <SettingsSection title="General">
+        <SettingsSection title={t("settings.language", "Language")}>
           <SettingsSelect
-            label={t("settings.language.label")}
-            description={t("settings.language.description")}
+            label={t("settings.preferredLanguage", "Preferred App Language")}
+            description={t("settings.languageDescription", "Select app UI language")}
             value={language}
             options={languageOptions}
             onSelect={handleLanguageChange}
@@ -47,11 +46,11 @@ export default function SettingsScreen() {
         </SettingsSection>
 
         <ThemedView style={styles.section}>
-          <ThemedText type="subtitle">{getTranslation("stay_informed", language as any)}</ThemedText>
+          <ThemedText type="subtitle">{t("home.activeAlerts", "Active Emergency Alerts")}</ThemedText>
           <ThemedText style={styles.description}>
-            • {getTranslation("emergency_alert", language as any)}{'\n'}
-            • {getTranslation("help_is_on_the_way", language as any)}{'\n'}
-            • {getTranslation("stay_calm", language as any)}
+            • {t("earthquake.dropCoverHold", "Drop, Cover, and Hold On!")}{'\n'}
+            • {t("flood.lowLyingArea", "Low-Lying Area Advisory")}{'\n'}
+            • {t("home.safetyStatus", "Safety Status")}
           </ThemedText>
         </ThemedView>
       </ScrollView>

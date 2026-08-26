@@ -333,14 +333,21 @@ export const emergencyTranslations: Record<string, TranslationPhrase> = {
   },
 };
 
+import i18n from '@/services/i18n';
+
 // Helper function to get translation for a specific phrase and language
 export function getTranslation(phraseKey: string, language: string): string {
+  const normLang = (language === "fil" || language === "tl") ? "fil" : "en";
+  if (i18n.isInitialized && i18n.exists(phraseKey, { lng: normLang })) {
+    return i18n.t(phraseKey, { lng: normLang });
+  }
+
   const phrase = emergencyTranslations[phraseKey];
   if (!phrase) {
     return phraseKey; // Return key as fallback
   }
-  const normLang = (language === "fil" || language === "tl") ? "tl" : (language as LanguageCode);
-  return (phrase as any)[normLang] || (phrase as any)["tl"] || phrase.en || phraseKey;
+  const tagalogLang = (language === "fil" || language === "tl") ? "tl" : (language as LanguageCode);
+  return (phrase as any)[tagalogLang] || (phrase as any)["tl"] || phrase.en || phraseKey;
 }
 
 // Get all available phrase keys

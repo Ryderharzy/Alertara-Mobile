@@ -440,6 +440,51 @@ function matchesAlertSearch(alert: NotificationItem, query: string) {
   return Array.from(aliasTerms).some((term) => haystack.includes(term));
 }
 
+function translateDynamicAlertText(text: string | null | undefined, language: string): string {
+  if (!text) return "";
+  let cleaned = String(text)
+    .replace(/Ã,Â·|Ã‚Â·/g, " • ")
+    .replace(/Ã¢â‚¬Â¢|â€¢|\u2022/g, " • ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (language === "en") return cleaned;
+
+  const directMatch = getTranslation(cleaned, language);
+  if (directMatch && directMatch !== cleaned) {
+    return directMatch;
+  }
+
+  let translated = cleaned;
+  translated = translated.replace(/TEST ALERT (\d+)/gi, "MGA PAGSUBOK NA ALERTO $1");
+  translated = translated.replace(/^TEST ALERT$/gi, "MGA PAGSUBOK NA ALERTO");
+  translated = translated.replace(/^THIS IS A TEST$/gi, "ITO AY ISANG PAGSUBOK");
+  translated = translated.replace(/QUEZON CITY RAINFALL ADVISORY/gi, "ABISO SA ULAN SA QUEZON CITY");
+  translated = translated.replace(/TEST/gi, "PAGSUBOK");
+  translated = translated.replace(
+    /A public safety incident has been reported\.?/gi,
+    "Naiulat ang isang insidente sa kaligtasan ng publiko."
+  );
+  translated = translated.replace(
+    /Affected area:\s*the affected area in Quezon City\.?/gi,
+    "Apektadong lugar: ang apektadong lugar sa Quezon City."
+  );
+  translated = translated.replace(
+    /Protective action:\s*Avoid the affected area\.?/gi,
+    "Paraan ng pag-iingat: Iwasan ang apektadong lugar."
+  );
+  translated = translated.replace(
+    /WEATHER FORECAST - QUEZON CITY/gi,
+    "TAYA NG PANAHON - QUEZON CITY"
+  );
+  translated = translated.replace(
+    /PRECAUTIONS:\s*/gi,
+    "MGA PAG-IINGAT: "
+  );
+
+  return translated;
+}
+
 const NotificationCard = ({
   alert,
   cardBackground,
@@ -466,7 +511,17 @@ const NotificationCard = ({
   language: string;
 }) => {
   const router = useRouter();
+  const { t } = useTranslate();
   const severityColor = severityColors[alert.severity] ?? "#999";
+
+  const displayTitle = translateDynamicAlertText(alert.title, language);
+  const displayCategory = translateDynamicAlertText(alert.category, language);
+  const displayDescription = translateDynamicAlertText(alert.description, language);
+  const displaySeverity = alert.severity === "HIGH" 
+    ? t("notifications.highSeverity", "HIGH")
+    : alert.severity === "MEDIUM"
+      ? t("notifications.mediumSeverity", "MEDIUM")
+      : t("notifications.lowSeverity", "LOW");
 
   const renderRightActions = () => (
     <View style={styles.swipeActions}>
@@ -475,14 +530,14 @@ const NotificationCard = ({
         onPress={() => onAcknowledge(alert.id)}
       >
         <IconSymbol name="checkmark.circle" size={18} color="#fff" />
-        <ThemedText style={styles.swipeActionText}>Seen</ThemedText>
+        <ThemedText style={styles.swipeActionText}>{t("common.seen", "Seen")}</ThemedText>
       </Pressable>
       <Pressable
         style={[styles.swipeActionButton, { backgroundColor: highlightColor }]}
         onPress={() => onOpenDetails(alert)}
       >
         <IconSymbol name="chevron.right" size={18} color="#fff" />
-        <ThemedText style={styles.swipeActionText}>Open</ThemedText>
+        <ThemedText style={styles.swipeActionText}>{t("common.open", "Open")}</ThemedText>
       </Pressable>
     </View>
   );
@@ -526,7 +581,7 @@ const NotificationCard = ({
               style={[styles.compactTitle, { color: textColor }]}
               numberOfLines={1}
             >
-              {alert.title}
+              {displayTitle}
             </ThemedText>
             <ThemedText
               style={[
@@ -535,7 +590,7 @@ const NotificationCard = ({
               ]}
               numberOfLines={1}
             >
-              {alert.category} Ã‚Â· {alert.severity} Ã‚Â· {alert.timestamp}
+              {displayCategory} • {displaySeverity} • {alert.timestamp}
             </ThemedText>
           </View>
         </View>
@@ -559,7 +614,7 @@ const NotificationCard = ({
         <View style={styles.categoryRow}>
           <IconSymbol name={alert.icon} size={18} color={severityColor} />
           <ThemedText style={[styles.categoryText, { color: textColor }]}>
-            {alert.category} Ã‚Â· {alert.type}
+            {displayCategory} • {translateDynamicAlertText(alert.type, language)}
           </ThemedText>
         </View>
         <View
@@ -572,7 +627,7 @@ const NotificationCard = ({
           ]}
         >
           <ThemedText style={[styles.severityText, { color: severityColor }]}>
-            {alert.severity}
+            {displaySeverity}
           </ThemedText>
         </View>
       </View>
@@ -581,20 +636,20 @@ const NotificationCard = ({
         type="subtitle"
         style={[styles.titleText, { color: textColor }]}
       >
-        {alert.title}
+        {displayTitle}
       </ThemedText>
 
       <ThemedText
         style={[styles.description, { color: textColor }]}
         numberOfLines={1}
       >
-        {alert.description}
+        {displayDescription}
       </ThemedText>
 
       <View style={[styles.footerRow, { marginTop: 8 }]}>
         <View style={{ flex: 1 }}>
           <ThemedText style={[styles.timestamp, { color: textColor }]}>
-            Timestamp: {alert.timestamp}
+            {t("common.date", "Timestamp")}: {alert.timestamp}
           </ThemedText>
         </View>
         <Pressable
@@ -631,7 +686,7 @@ const NotificationCard = ({
           <ThemedText
             style={[styles.smallChatbotLabel, { color: highlightColor }]}
           >
-            Chatbot
+            {t("common.chatbot", "Chatbot")}
           </ThemedText>
         </Pressable>
       </View>
@@ -740,20 +795,20 @@ export default function NotificationScreen() {
   );
   const categoryTabs = useMemo(() => {
     const fixedTabs = [
-      { key: "All Alerts", icon: "bell" as IconSymbolName },
-      { key: "Announcement", icon: "megaphone" as IconSymbolName },
-      { key: "General", icon: "info.circle" as IconSymbolName },
-      { key: "Weather Forecast", icon: "cloud.sun" as IconSymbolName },
-      { key: "Emergency", icon: "shield" as IconSymbolName },
-      { key: "Safety", icon: "shield" as IconSymbolName },
-      { key: "Health", icon: "heart" as IconSymbolName },
-      { key: "Traffic", icon: "car.side" as IconSymbolName },
-      { key: "Local News", icon: "newspaper" as IconSymbolName },
+      { key: "All Alerts", icon: "bell" as IconSymbolName, label: t("notifications.all", "All Alerts") },
+      { key: "Announcement", icon: "megaphone" as IconSymbolName, label: t("notifications.publicAdvisory", "Announcement") },
+      { key: "General", icon: "info.circle" as IconSymbolName, label: t("categories.general", "General") },
+      { key: "Weather Forecast", icon: "cloud.sun" as IconSymbolName, label: t("weather.title", "Weather Forecast") },
+      { key: "Emergency", icon: "shield" as IconSymbolName, label: t("categories.general", "Emergency") },
+      { key: "Safety", icon: "shield" as IconSymbolName, label: t("categories.crime", "Safety") },
+      { key: "Health", icon: "heart" as IconSymbolName, label: t("settings.health", "Health") },
+      { key: "Traffic", icon: "car.side" as IconSymbolName, label: t("categories.traffic", "Traffic") },
+      { key: "Local News", icon: "newspaper" as IconSymbolName, label: t("notifications.publicAdvisory", "Local News") },
     ];
     
-    console.log("Ã°Å¸ÂÂ·Ã¯Â¸Â Fixed category tabs:", fixedTabs.map(t => t.key));
+    console.log("Ã°Å¸Â Â·Ã¯Â¸Â  Fixed category tabs:", fixedTabs.map(t => t.key));
     return fixedTabs;
-  }, []);
+  }, [t, language]);
   const selectedCategoryItems = useMemo(() => {
     if (selectedCategory === "All Alerts") {
       return allNotifications;
@@ -1393,7 +1448,7 @@ export default function NotificationScreen() {
                   type="title"
                   style={[styles.headerTitle, { color: "#ffffff" }]}
                 >
-                  Notifications
+                  {t("notifications.title", "Notifications")}
                 </ThemedText>
               </View>
               <View style={styles.headerActions}>
