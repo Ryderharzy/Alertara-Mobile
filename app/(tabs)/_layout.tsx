@@ -28,7 +28,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: t("nav.home"),
+          title: t("navigation.home"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="house" color={color} />
           ),
@@ -38,7 +38,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          title: t("nav.map"),
+          title: t("navigation.map"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="map" color={color} />
           ),
@@ -48,7 +48,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="messages"
         options={{
-          title: t("nav.messages"),
+          title: t("navigation.messages"),
           tabBarButton: () => null,
         }}
       />
@@ -56,7 +56,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="call"
         options={{
-          title: t("nav.call"),
+          title: t("navigation.call"),
           tabBarButton: () => null,
         }}
       />
@@ -64,7 +64,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="report"
         options={{
-          title: t("nav.messages", "Messages"),
+          title: t("navigation.report", "Report"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="bubble.left.and.bubble.right" color={color} />
           ),
@@ -74,7 +74,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="me"
         options={{
-          title: t("nav.profile"),
+          title: t("navigation.profile"),
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="person" color={color} />
           ),

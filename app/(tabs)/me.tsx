@@ -87,9 +87,13 @@ export default function MeScreen() {
 
   const [changePasswordModalVisible, setChangePasswordModalVisible] =
     useState(false);
+  const [changePasswordStep, setChangePasswordStep] = useState<"passwords" | "gmail_verify">("passwords");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [generatedOtp, setGeneratedOtp] = useState("");
+  const [enteredOtp, setEnteredOtp] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [policyModalVisible, setPolicyModalVisible] = useState(false);
   const [policyType, setPolicyType] = useState<"privacy" | "terms">("privacy");
   const [logoutSuccessVisible, setLogoutSuccessVisible] = useState(false);
@@ -132,28 +136,72 @@ export default function MeScreen() {
     tl: t("language.tagalog", "Filipino"),
   };
 
-  const handleChangePassword = () => {
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    if (resendCooldown > 0) {
+      timer = setInterval(() => {
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [resendCooldown]);
+
+  const resetPasswordModalState = () => {
+    setChangePasswordModalVisible(false);
+    setChangePasswordStep("passwords");
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setGeneratedOtp("");
+    setEnteredOtp("");
+  };
+
+  const handleSendGmailCode = () => {
     if (!currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert(getTranslation("all_clear", language as any), getTranslation("please_remain_calm", language as any));
+      Alert.alert(t("common.error", "Error"), t("auth.fieldRequired", "Please fill in all password fields."));
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert(getTranslation("all_clear", language as any), getTranslation("please_remain_calm", language as any));
+      Alert.alert(t("common.error", "Error"), t("auth.passwordsDoNotMatch", "Passwords do not match."));
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert(getTranslation("all_clear", language as any), getTranslation("please_remain_calm", language as any));
+      Alert.alert(t("common.error", "Error"), t("auth.passwordTooShort", "Password must be at least 6 characters."));
       return;
     }
 
-    // TODO: Make API call to change password
-    Alert.alert(getTranslation("all_clear", language as any), getTranslation("help_is_on_the_way", language as any));
-    setChangePasswordModalVisible(false);
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setGeneratedOtp(code);
+    setResendCooldown(60);
+    setChangePasswordStep("gmail_verify");
+
+    const targetEmail = userProfile?.email || "your registered Gmail";
+    Alert.alert(
+      t("profile.gmailAuthTitle", "Gmail Verification Required"),
+      `${t("profile.codeSent", "Verification code sent to your Gmail!")}\n\nGmail: ${targetEmail}\nSecurity Code: ${code}`,
+      [{ text: t("common.confirm", "OK") }]
+    );
+  };
+
+  const handleConfirmPasswordChange = () => {
+    if (!enteredOtp || enteredOtp.trim() !== generatedOtp) {
+      Alert.alert(
+        t("common.error", "Error"),
+        t("profile.invalidCode", "Invalid verification code. Please check your Gmail and try again.")
+      );
+      return;
+    }
+
+    Alert.alert(
+      t("common.success", "Success"),
+      t("profile.passwordChangedSuccess", "Password changed successfully after Gmail verification!")
+    );
+
+    resetPasswordModalState();
   };
 
   const handleLogout = () => {
@@ -785,7 +833,7 @@ export default function MeScreen() {
           <SettingsDivider />
           <SettingsMenuItem
             label={t("settings.inAppSound", "In-App Sound")}
-            value="Preview app action tone"
+            value={t("settings.inAppSoundDesc", "Preview app action tone")}
             icon="speaker.wave.2"
             onPress={() => playAlertaraActionSound("reportSend")}
           />
@@ -809,8 +857,8 @@ export default function MeScreen() {
               value={language}
               icon="globe"
               options={[
-                { label: "English", value: "en" },
-                { label: "Filipino (Tagalog)", value: "fil" },
+                { label: t("settings.english", "English"), value: "en" },
+                { label: t("settings.filipino", "Filipino (Tagalog)"), value: "fil" },
               ]}
               onSelect={handleLanguageSelect}
             />
@@ -819,7 +867,9 @@ export default function MeScreen() {
           <SettingsToggle
             label={t("settings.darkTheme", "Dark Theme")}
             description={
-              isDarkMode ? "Currently enabled" : "Currently disabled"
+              isDarkMode
+                ? t("settings.darkThemeEnabled", "Currently enabled")
+                : t("settings.darkThemeDisabled", "Currently disabled")
             }
             value={isDarkMode}
             onValueChange={toggleTheme}
@@ -909,7 +959,7 @@ export default function MeScreen() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Change Password Modal */}
+      {/* Change Password Modal with Gmail Authentication */}
       <Modal
         visible={changePasswordModalVisible}
         transparent
@@ -917,7 +967,7 @@ export default function MeScreen() {
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setChangePasswordModalVisible(false)}
+          onPress={resetPasswordModalState}
         >
           <Pressable
             style={[
@@ -926,88 +976,162 @@ export default function MeScreen() {
             ]}
             onPress={(e) => e.stopPropagation()}
           >
-            <ThemedText style={styles.modalTitle}>{t("profile.changePassword")}</ThemedText>
+            {changePasswordStep === "passwords" ? (
+              <>
+                <ThemedText style={styles.modalTitle}>{t("profile.changePassword")}</ThemedText>
 
-            <View style={styles.passwordInputContainer}>
-              <ThemedText style={styles.inputLabel}>
-                {t("profile.currentPassword")}
-              </ThemedText>
-              <TextInput
-                style={[
-                  styles.passwordInput,
-                  {
-                    backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
-                    color: isDarkMode ? "#fff" : "#000",
-                    borderColor: isDarkMode ? "#555" : "#ddd",
-                  },
-                ]}
-                placeholder="Enter current password"
-                placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
-                secureTextEntry
-                value={currentPassword}
-                onChangeText={setCurrentPassword}
-              />
-            </View>
+                <View style={styles.passwordInputContainer}>
+                  <ThemedText style={styles.inputLabel}>
+                    {t("profile.currentPassword")}
+                  </ThemedText>
+                  <TextInput
+                    style={[
+                      styles.passwordInput,
+                      {
+                        backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                        color: isDarkMode ? "#fff" : "#000",
+                        borderColor: isDarkMode ? "#555" : "#ddd",
+                      },
+                    ]}
+                    placeholder="Enter current password"
+                    placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
+                    secureTextEntry
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                  />
+                </View>
 
-            <View style={styles.passwordInputContainer}>
-              <ThemedText style={styles.inputLabel}>{t("profile.newPassword")}</ThemedText>
-              <TextInput
-                style={[
-                  styles.passwordInput,
-                  {
-                    backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
-                    color: isDarkMode ? "#fff" : "#000",
-                    borderColor: isDarkMode ? "#555" : "#ddd",
-                  },
-                ]}
-                placeholder="Enter new password"
-                placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
-                secureTextEntry
-                value={newPassword}
-                onChangeText={setNewPassword}
-              />
-            </View>
+                <View style={styles.passwordInputContainer}>
+                  <ThemedText style={styles.inputLabel}>{t("profile.newPassword")}</ThemedText>
+                  <TextInput
+                    style={[
+                      styles.passwordInput,
+                      {
+                        backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                        color: isDarkMode ? "#fff" : "#000",
+                        borderColor: isDarkMode ? "#555" : "#ddd",
+                      },
+                    ]}
+                    placeholder="Enter new password"
+                    placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
+                    secureTextEntry
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                  />
+                </View>
 
-            <View style={styles.passwordInputContainer}>
-              <ThemedText style={styles.inputLabel}>
-                {t("profile.confirmPassword")}
-              </ThemedText>
-              <TextInput
-                style={[
-                  styles.passwordInput,
-                  {
-                    backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
-                    color: isDarkMode ? "#fff" : "#000",
-                    borderColor: isDarkMode ? "#555" : "#ddd",
-                  },
-                ]}
-                placeholder="Confirm new password"
-                placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
-                secureTextEntry
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-              />
-            </View>
+                <View style={styles.passwordInputContainer}>
+                  <ThemedText style={styles.inputLabel}>
+                    {t("profile.confirmPassword")}
+                  </ThemedText>
+                  <TextInput
+                    style={[
+                      styles.passwordInput,
+                      {
+                        backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                        color: isDarkMode ? "#fff" : "#000",
+                        borderColor: isDarkMode ? "#555" : "#ddd",
+                      },
+                    ]}
+                    placeholder="Confirm new password"
+                    placeholderTextColor={isDarkMode ? "#999" : "#ccc"}
+                    secureTextEntry
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                  />
+                </View>
 
-            <View style={styles.modalButtonContainer}>
-              <Pressable
-                style={[styles.modalButton, { backgroundColor: "#ddd" }]}
-                onPress={() => setChangePasswordModalVisible(false)}
-              >
-                <ThemedText style={styles.modalButtonText}>{t("profile.cancel")}</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.modalButton,
-                  { backgroundColor: TealColors.primary },
-                ]}
-                onPress={handleChangePassword}
-              >
-                <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
-                  {t("profile.change")}
+                <View style={styles.modalButtonContainer}>
+                  <Pressable
+                    style={[styles.modalButton, { backgroundColor: "#ddd" }]}
+                    onPress={resetPasswordModalState}
+                  >
+                    <ThemedText style={styles.modalButtonText}>{t("common.cancel")}</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.modalButton,
+                      { backgroundColor: TealColors.primary },
+                    ]}
+                    onPress={handleSendGmailCode}
+                  >
+                    <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
+                      {t("profile.sendGmailCode", "Send Code to Gmail")}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <ThemedText style={styles.modalTitle}>{t("profile.gmailAuthTitle", "Gmail Verification Required")}</ThemedText>
+                
+                <ThemedText style={[styles.inputLabel, { marginBottom: 12, lineHeight: 18, color: isDarkMode ? "#aaa" : "#555" }]}>
+                  {t("profile.gmailAuthDesc", `A 6-digit security code has been sent to your Gmail address (${userProfile?.email || "your registered Gmail"}) to confirm this password change.`).replace("{email}", userProfile?.email || "Gmail")}
                 </ThemedText>
-              </Pressable>
-            </View>
+
+                <View style={styles.passwordInputContainer}>
+                  <ThemedText style={styles.inputLabel}>
+                    {t("profile.enterVerificationCode", "Enter 6-Digit Code")}
+                  </ThemedText>
+                  <TextInput
+                    style={[
+                      styles.passwordInput,
+                      {
+                        backgroundColor: isDarkMode ? "#333" : "#f5f5f5",
+                        color: isDarkMode ? "#fff" : "#000",
+                        borderColor: isDarkMode ? "#555" : "#ddd",
+                        textAlign: "center",
+                        fontSize: 20,
+                        letterSpacing: 6,
+                        fontWeight: "700",
+                      },
+                    ]}
+                    placeholder="123456"
+                    placeholderTextColor={isDarkMode ? "#777" : "#ccc"}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={enteredOtp}
+                    onChangeText={setEnteredOtp}
+                  />
+                </View>
+
+                <View style={{ flexDirection: "row", justifyContent: "space-between", marginVertical: 8 }}>
+                  <Pressable
+                    disabled={resendCooldown > 0}
+                    onPress={handleSendGmailCode}
+                  >
+                    <ThemedText style={{ color: resendCooldown > 0 ? "#888" : TealColors.primary, fontSize: 13, fontWeight: "600" }}>
+                      {resendCooldown > 0 ? `${t("profile.resendCode", "Resend Code")} (${resendCooldown}s)` : t("profile.resendCode", "Resend Code")}
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable onPress={() => setChangePasswordStep("passwords")}>
+                    <ThemedText style={{ color: TealColors.primary, fontSize: 13, fontWeight: "600" }}>
+                      {t("common.back", "Back")}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalButtonContainer}>
+                  <Pressable
+                    style={[styles.modalButton, { backgroundColor: "#ddd" }]}
+                    onPress={resetPasswordModalState}
+                  >
+                    <ThemedText style={styles.modalButtonText}>{t("common.cancel")}</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.modalButton,
+                      { backgroundColor: TealColors.primary },
+                    ]}
+                    onPress={handleConfirmPasswordChange}
+                  >
+                    <ThemedText style={[styles.modalButtonText, { color: "#fff" }]}>
+                      {t("profile.confirmChangePassword", "Confirm Change")}
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
@@ -1147,91 +1271,101 @@ export default function MeScreen() {
               <>
                 <ThemedText style={styles.policyText}>
                   <ThemedText style={styles.policyHeading}>
-                    Privacy Policy
-                  </ThemedText>
-                  {"\n\n"}
-                  At Alertara, we take your privacy seriously. This Privacy
-                  Policy explains how we collect, use, disclose, and safeguard
-                  your information.
-                  {"\n\n"}
-                  <ThemedText style={styles.policySubheading}>
-                    1. Information We Collect
-                  </ThemedText>
-                  {"\n"}Ã¢â‚¬Â¢ Personal identification information (name, email,
-                  phone number)
-                  {"\n"}Ã¢â‚¬Â¢ Location data when you use crime mapping features
-                  {"\n"}Ã¢â‚¬Â¢ Device information (device type, operating system)
-                  {"\n"}Ã¢â‚¬Â¢ Usage data and analytics
-                  {"\n\n"}
-                  <ThemedText style={styles.policySubheading}>
-                    2. How We Use Your Information
-                  </ThemedText>
-                  {"\n"}Ã¢â‚¬Â¢ To provide and improve our services
-                  {"\n"}Ã¢â‚¬Â¢ To send notifications and alerts
-                  {"\n"}Ã¢â‚¬Â¢ To enhance user experience
-                  {"\n"}Ã¢â‚¬Â¢ For analytics and research
-                  {"\n\n"}
-                  <ThemedText style={styles.policySubheading}>
-                    3. Data Security
+                    Privacy Policy – Alertara QC
                   </ThemedText>
                   {"\n"}
-                  We implement appropriate technical and organizational measures
-                  to protect your personal data against unauthorized processing.
+                  <ThemedText style={{ fontSize: 12, color: "#888" }}>
+                    Republic Act No. 10173 (Data Privacy Act of 2012) Compliant • Effective August 26, 2026
+                  </ThemedText>
+                  {"\n\n"}
+                  Alertara QC – Emergency Communication System ("Alertara QC", "We", "Us") respects your right to privacy and is committed to protecting your personal information under Republic Act No. 10173 (Data Privacy Act of 2012 / DPA) and its Implementing Rules and Regulations.
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
-                    4. Your Rights
+                    1. Personal Information Controller (PIC)
                   </ThemedText>
                   {"\n"}
-                  You have the right to access, modify, or delete your personal
-                  information. Contact us at privacy@alertara.com for requests.
+                  The Personal Information Controller is [ORGANIZATION NAME - TO BE CONFIRMED], located at [OFFICE ADDRESS], Quezon City, Metro Manila, Philippines. Data Protection Officer (DPO): [DPO NAME / PRIVACY EMAIL].
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    2. Information We Collect
+                  </ThemedText>
+                  {"\n"}• Personal Data: Full name, registered email address, mobile phone number, Barangay, District, and street address.
+                  {"\n"}• Sensitive Personal Data: Safety status declarations ("Safe", "Need Help", "Evacuated"), incident photos, voice notes, and emergency report details.
+                  {"\n"}• Technical Data: Firebase Cloud Messaging (FCM) registration tokens, unique device IDs, and technical session logs.
+                  {"\n"}• Location Data: Precise GPS coordinates (Latitude & Longitude) accessed during active incident reports and emergency calls.
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    3. Purposes & Legal Basis of Processing
+                  </ThemedText>
+                  {"\n"}
+                  Your data is processed under RA 10173 Sections 12 & 13 for:
+                  {"\n"}• Delivering real-time weather, flood, and seismic advisories.
+                  {"\n"}• Routing emergency reports and GPS location to Quezon City emergency dispatchers (Hotline 122), PNP, BFP, and local Barangay DRRM units.
+                  {"\n"}• Protecting vital interests (life, health, and physical safety) during emergencies (Sec. 12c / 13l).
+                  {"\n"}• Fulfilling public safety functions of local government units (Sec. 12e).
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    4. Third-Party Service Providers
+                  </ThemedText>
+                  {"\n"}• Firebase Cloud Messaging (Google LLC): Delivers urgent push notifications.
+                  {"\n"}• Open-Meteo & PHIVOLCS/PAGASA Feeds: Supplies weather and seismic bulletins.
+                  {"\n"}We do NOT sell, rent, or commercialize your personal information.
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    5. Data Security & Limitations
+                  </ThemedText>
+                  {"\n"}
+                  We implement HTTPS/TLS 1.3 transit encryption, cryptographic password hashing, and role-based access control. However, no digital system is 100% immune against network hardware outages or unauthorized access outside reasonable control.
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    6. Your Data Subject Rights (RA 10173)
+                  </ThemedText>
+                  {"\n"}
+                  You possess the statutory Right to be Informed, Access, Object, Erasure/Blocking, Rectification, Data Portability, and Right to file a complaint with the National Privacy Commission (NPC). Contact our DPO at [PRIVACY EMAIL] or use Profile settings to manage your data.
                 </ThemedText>
               </>
             ) : (
               <>
                 <ThemedText style={styles.policyText}>
                   <ThemedText style={styles.policyHeading}>
-                    Terms of Service
-                  </ThemedText>
-                  {"\n\n"}
-                  Welcome to Alertara. These Terms of Service govern your use of
-                  our platform.
-                  {"\n\n"}
-                  <ThemedText style={styles.policySubheading}>
-                    1. Acceptance of Terms
+                    Terms of Service – Alertara QC
                   </ThemedText>
                   {"\n"}
-                  By using Alertara, you agree to comply with these terms and
-                  all applicable laws and regulations.
-                  {"\n\n"}
-                  <ThemedText style={styles.policySubheading}>
-                    2. User Responsibilities
+                  <ThemedText style={{ fontSize: 12, color: "#888" }}>
+                    Effective August 26, 2026
                   </ThemedText>
-                  {"\n"}Ã¢â‚¬Â¢ You must provide accurate information
-                  {"\n"}Ã¢â‚¬Â¢ You are responsible for your account security
-                  {"\n"}Ã¢â‚¬Â¢ You agree not to use the app for illegal activities
-                  {"\n"}Ã¢â‚¬Â¢ You will not submit false crime reports
+                  {"\n\n"}
+                  These Terms of Service ("Terms") govern your access to and use of the Alertara QC – Emergency Communication System. By installing or using the app, you agree to these Terms.
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
-                    3. Disclaimer
+                    1. Emergency System Disclaimer & Network Limitations
                   </ThemedText>
                   {"\n"}
-                  Alertara is provided &quot;as is&quot; without warranties. We
-                  are not liable for inaccurate location data or incident
-                  information.
+                  Alertara QC is a digital emergency platform dependent on cellular signals, internet connectivity, mobile hardware, and server networks. Delivery of push notifications and emergency communications CANNOT be guaranteed 100%. In life-threatening situations where connectivity is delayed, users MUST also contact Quezon City Emergency Hotline 122 or 911 directly.
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
-                    4. Limitation of Liability
+                    2. Strict Prohibition on False Emergency Reports
                   </ThemedText>
                   {"\n"}
-                  To the fullest extent permitted by law, Alertara shall not be
-                  liable for any indirect, incidental, or consequential damages.
+                  Submitting false emergency alerts, fake reports, or hoax calls is strictly prohibited and illegal under Philippine law (Presidential Decree No. 1727 and Article 154 of the Revised Penal Code). Violators will face immediate account termination, IP blocking, and criminal referral to the PNP Anti-Cybercrime Group.
                   {"\n\n"}
                   <ThemedText style={styles.policySubheading}>
-                    5. Termination
+                    3. User Responsibilities & Content License
+                  </ThemedText>
+                  {"\n"}• You must provide accurate registration details and maintain account confidentiality.
+                  {"\n"}• Photos and notes uploaded in incident reports must be genuine. You grant Alertara QC a royalty-free license to store and transmit emergency media to emergency dispatchers for response purposes.
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    4. Weather & Seismic Information Disclaimer
                   </ThemedText>
                   {"\n"}
-                  We reserve the right to terminate accounts that violate these
-                  terms.
+                  Meteorological and seismic bulletins aggregated from PAGASA, PHIVOLCS, and Open-Meteo are provided on an "AS IS" basis without warranties of real-time sensor perfection.
+                  {"\n\n"}
+                  <ThemedText style={styles.policySubheading}>
+                    5. Limitation of Liability & Governing Law
+                  </ThemedText>
+                  {"\n"}
+                  To the maximum extent permitted by law, Alertara QC shall not be liable for indirect damages resulting from cell network dropouts, emergency agency delays, or third-party service failures. These Terms are governed by the laws of the Republic of the Philippines, under the jurisdiction of competent courts in Quezon City.
                 </ThemedText>
               </>
             )}

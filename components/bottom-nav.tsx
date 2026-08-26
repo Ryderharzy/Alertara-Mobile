@@ -80,17 +80,17 @@ export function BottomNav({
         // we only show icons for visible tabs
         const label =
           route.name === "index"
-            ? t("nav.home", "Home")
+            ? t("navigation.home", "Home")
             : route.name === "map"
-              ? t("nav.map", "Map")
+              ? t("navigation.map", "Map")
               : route.name === "messages"
-                ? t("nav.messages", "Messages")
+                ? t("navigation.messages", "Messages")
                 : route.name === "report"
-                  ? t("nav.report", "Report")
+                  ? t("navigation.report", "Report")
                   : route.name === "me"
-                    ? t("nav.profile", "Profile")
+                    ? t("navigation.profile", "Profile")
                     : route.name === "call"
-                      ? t("nav.call", "Call")
+                      ? t("navigation.call", "Call")
                       : options.title || route.name;
         const isFocused = state.index === index;
 

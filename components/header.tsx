@@ -29,66 +29,70 @@ import {
 
 const SEARCH_PANEL_HEIGHT = 224;
 
-const searchTargets = [
-  {
-    label: "Dashboard",
-    keywords: ["home", "dashboard", "overview"],
-    href: "/(tabs)",
-  },
-  {
-    label: "Map",
-    keywords: ["map", "safety map", "crime map", "location"],
-    href: "/(tabs)/map",
-  },
-  {
-    label: "Report",
-    keywords: ["report", "incident", "submit", "file report"],
-    href: "/(tabs)/report",
-  },
-  {
-    label: "Messages",
-    keywords: ["messages", "inbox", "chat", "reports inbox", "general inquiries"],
-    href: "/(tabs)/messages",
-  },
-  {
-    label: "Alerts",
-    keywords: [
-      "alerts",
-      "notification",
-      "news",
-      "typhoon",
-      "fire",
-      "earthquake",
-      "warning",
-    ],
-    href: "/notification",
-  },
-  {
-    label: "Profile",
-    keywords: ["profile", "account", "me", "settings"],
-    href: "/(tabs)/me",
-  },
-  {
-    label: "Emergency Call",
-    keywords: ["call", "emergency", "help", "911"],
-    href: "/(tabs)/call",
-  },
-  {
-    label: "Submit Tip",
-    keywords: ["tip", "submit tip", "feedback"],
-    href: "/submit-tip",
-  },
-  {
-    label: "Settings",
-    keywords: ["settings", "preferences", "language"],
-    href: "/(tabs)/settings",
-  },
-];
-
 export function Header() {
   const router = useRouter();
   const { isDarkMode } = useTheme();
-  const { t } = useTranslate();
+  const { t, lang } = useTranslate();
+
+  const searchTargets = useMemo(
+    () => [
+      {
+        label: t("navigation.home", "Dashboard"),
+        keywords: ["home", "dashboard", "overview"],
+        href: "/(tabs)",
+      },
+      {
+        label: t("navigation.map", "Map"),
+        keywords: ["map", "safety map", "crime map", "location"],
+        href: "/(tabs)/map",
+      },
+      {
+        label: t("navigation.report", "Report"),
+        keywords: ["report", "incident", "submit", "file report"],
+        href: "/(tabs)/report",
+      },
+      {
+        label: t("navigation.messages", "Messages"),
+        keywords: ["messages", "inbox", "chat", "reports inbox", "general inquiries"],
+        href: "/(tabs)/messages",
+      },
+      {
+        label: t("notifications.title", "Alerts"),
+        keywords: [
+          "alerts",
+          "notification",
+          "news",
+          "typhoon",
+          "fire",
+          "earthquake",
+          "warning",
+        ],
+        href: "/notification",
+      },
+      {
+        label: t("navigation.profile", "Profile"),
+        keywords: ["profile", "account", "me", "settings"],
+        href: "/(tabs)/me",
+      },
+      {
+        label: t("emergencyCall.title", "Emergency Call"),
+        keywords: ["call", "emergency", "help", "911"],
+        href: "/(tabs)/call",
+      },
+      {
+        label: t("reports.title", "Submit Tip"),
+        keywords: ["tip", "submit tip", "feedback"],
+        href: "/submit-tip",
+      },
+      {
+        label: t("navigation.settings", "Settings"),
+        keywords: ["settings", "preferences", "language"],
+        href: "/(tabs)/settings",
+      },
+    ],
+    [t, lang],
+  );
+
   const searchInputRef = useRef<TextInput>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");

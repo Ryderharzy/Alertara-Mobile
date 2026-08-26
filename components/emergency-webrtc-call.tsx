@@ -1098,7 +1098,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
 
       const socket = io(SIGNALING_URL, {
         path: '/socket.io',
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],
         forceNew: true,
         reconnection: true,
         reconnectionAttempts: 8,
@@ -1356,7 +1356,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
               </Text>
             ) : null}
             <View style={styles.locationRow}>
-              <Text style={styles.locationLabel}>Natukoy na Barangay:</Text>
+              <Text style={styles.locationLabel}>{t("home.myBarangay", "Natukoy na Barangay:")}</Text>
               <Text style={styles.locationValue}>{effectiveBarangay}</Text>
             </View>
             <View style={styles.locationActionsRow}>
@@ -1365,14 +1365,14 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
                 onPress={() => setBarangayModalVisible(true)}
               >
                 <FontAwesome5 name="edit" size={12} color="#ffffff" />
-                <Text style={styles.changeBarangayText}>Baguhin ang Barangay</Text>
+                <Text style={styles.changeBarangayText}>{t("home.changeBarangay", "Baguhin ang Barangay")}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {(callState === 'failed' || callState === 'ended') && (
             <Pressable style={styles.retryButton} onPress={retry}>
-              <Text style={styles.retryText}>Call Again</Text>
+              <Text style={styles.retryText}>{t("common.retry", "Call Again")}</Text>
             </Pressable>
           )}
         </View>
@@ -1386,14 +1386,14 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Pumili ng Barangay (Quezon City)</Text>
+                <Text style={styles.modalTitle}>{t("auth.selectBarangay", "Pumili ng Barangay (Quezon City)")}</Text>
                 <TouchableOpacity onPress={() => setBarangayModalVisible(false)}>
                   <FontAwesome5 name="times" size={18} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
               <TextInput
                 style={styles.searchInput}
-                placeholder="Maghanap ng barangay..."
+                placeholder={t("common.search", "Maghanap ng barangay...")}
                 placeholderTextColor="#64748b"
                 value={barangaySearchQuery}
                 onChangeText={setBarangaySearchQuery}
@@ -1436,15 +1436,15 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
 
         <View style={styles.chatCard}>
           <View style={styles.chatHeader}>
-            <Text style={styles.chatTitle}>Call Chat</Text>
+            <Text style={styles.chatTitle}>{t("emergencyCall.title", "Call Chat")}</Text>
             <Text style={styles.chatHint} numberOfLines={1}>{chatStatus}</Text>
           </View>
           <ScrollView style={styles.messages} contentContainerStyle={styles.messagesContent}>
             {messages.length === 0 ? (
-              <Text style={styles.emptyChat}>Messages from you and the Emergency Respondent will appear here.</Text>
+              <Text style={styles.emptyChat}>{t("notifications.noNotifications", "Messages from you and the Emergency Respondent will appear here.")}</Text>
             ) : messages.map((item) => (
               <View key={item.id} style={[styles.messageBubble, item.sender === 'user' ? styles.userBubble : styles.adminBubble]}>
-                <Text style={styles.messageSender}>{item.sender === 'user' ? 'You' : 'Emergency Respondent'}</Text>
+                <Text style={styles.messageSender}>{item.sender === 'user' ? t("me.profileTitle", "You") : t("categories.general", "Emergency Respondent")}</Text>
                 <Text style={styles.messageText}>{item.text}</Text>
               </View>
             ))}
@@ -1453,7 +1453,7 @@ export function EmergencyWebRTCCall({ onClose, onMinimize }: EmergencyWebRTCCall
             <TextInput
               value={messageText}
               onChangeText={setMessageText}
-              placeholder="Type an emergency detail..."
+              placeholder={t("reports.descriptionPlaceholder", "Type an emergency detail...")}
               placeholderTextColor="#7f9693"
               style={styles.input}
               editable={!!callIdRef.current && callState !== 'ended'}
